@@ -1,0 +1,294 @@
+puts "Dungeon Crawler v1.0.5" 
+puts "----------------------"
+puts "By @Nicksquid (github)"
+puts "----------------------"
+puts "Changes from v1.0.0: Added new class (Monk), added starting shop, added easter egg, balanced healing."
+puts "---------------------"
+puts "What is your name?"
+name = gets.chomp
+
+#Secret name easter egg
+if name.downcase == "joe"
+     puts "joe mama 😂😂😂"
+end
+puts "Welcome, #{name} to Dungeon Crawler 1!"
+puts "What class would you like to be?"
+puts "Available Classes: Fighter, Wizard, Rogue, Monk"
+class_choice = gets.chomp.capitalize
+puts "You have chosen to be a #{class_choice}."
+
+#Defining variables
+player_health = 0
+player_attack = 0
+can_loot = false
+player_gold = 0
+can_channel = false
+shop_hp = false
+shop_ap = false
+potion_1 = false
+
+if class_choice == "Fighter"
+    puts "You are a Fighter, so you have 100 health and 20 attack (Greatsword)"
+    player_health = 100
+    player_attack = 20
+    player_gold = 15
+    can_loot = false
+    can_channel = false 
+end
+
+if class_choice == "Wizard"
+    puts "You are a Wizard, so you have 50 health and 30 attack (Magic Staff)"
+    player_health = 50
+    player_attack = 30
+    player_gold = 10
+    can_loot = false
+    can_channel = false
+end
+
+if class_choice == "Rogue"
+    puts "You are a Rogue, so you have 75 health and 25 attack (Dagger)"
+    puts "After clearing a room, you can choose to loot the room for a chance of finding treasure."
+    player_health = 75
+    player_attack = 25
+    player_gold = 20
+    can_loot = true
+    can_channel = false
+end
+
+if class_choice == "Monk"
+     puts "You are a Monk, so you have 40 health and 40 attack (Fists)"
+     puts "You have the ability to channel your energy, sacrificing a chance to attack to gain 10 health. Careful, you can only do this once."
+     player_health = 40
+     player_attack = 40
+     player_gold = 5
+     can_loot = false
+     can_channel = true
+end 
+puts "Before you enter the dungeon, you can buy items from the shop."
+shop_key = true
+while shop_key == true 
+     puts "You have #{player_gold} gold."
+     puts "------------------------"
+     puts "Shop"
+     if shop_hp == false
+          puts "Option 1: Medium Health Potion (20 health) - 10 gold"
+     end
+     if shop_ap == false
+          puts "Option 2: Tiny Attack Potion (5 attack) - 8 gold"
+     end
+     puts "Option 3: Exit the shop."
+     puts "------------------------"              
+     puts "What would you like to buy?"
+     buy_choice = gets.chomp
+
+     if buy_choice == "1"
+          if player_gold >= 10
+               puts "You buy a Health Potion for 10 gold."
+               player_gold = player_gold - 10
+               shop_hp = true
+          end 
+          if player_gold < 10
+          puts "You don't have enough gold to buy a Health Potion."
+          end
+     
+     end 
+     if buy_choice == "2"
+          if player_gold >= 8
+               puts "You buy an Attack Potion for 8 gold."
+               player_gold = player_gold - 8
+               shop_ap = true
+          end
+          if player_gold < 8
+               puts "You don't have enough gold to buy an Attack Potion."
+          end
+     end
+     if buy_choice == "3"
+          puts "You exit the shop."
+          shop_key = false #This is to exit the shop loop
+end
+     end
+     
+
+puts "You enter the dungeon."
+
+puts "You enter a stone-walled room. In front of the door, there is a Goblin blocking your path."
+goblin_health = 20
+goblin_attack = 5
+
+while goblin_health > 0 && player_health > 0
+     puts "What would you like to do?"
+     puts "1. Attack"
+     puts "2. Run"
+     if can_channel == true
+          puts "3. Channel Energy"
+     end
+     if shop_hp == true
+          puts "4. Drink Medium Health Potion"
+          shop_hp = false
+     end
+     if shop_ap == true
+          puts "5. Drink Tiny Attack Potion"
+          shop_ap = false
+     end
+          action = gets.chomp
+          
+          
+
+     if action == "1"
+          puts "You attack the Goblin."
+          puts "You deal #{player_attack} damage to the Goblin."
+          goblin_health = goblin_health - player_attack
+
+          if goblin_health > 0
+               puts "The Goblin has #{goblin_health} health left."
+               puts "The Goblin attacks you."
+               puts "The Goblin deals #{goblin_attack} damage to you."
+               player_health = player_health - goblin_attack
+               puts "You have #{player_health} health left."
+          else
+               puts "The Goblin has been defeated!"
+          end
+     elsif action == "2"
+          puts "You can't run away from the Goblin, because you are in the first room of the dungeon."
+     end
+          if action == "3"
+               puts "You channel your energy and gain 10 health."
+               player_health = player_health + 10
+               can_channel = false
+          end
+          if action == "4"
+               puts "You drink the Medium Health Potion and gain 20 health."
+               player_health = player_health + 20
+               shop_hp = false
+          end
+          if action == "5"
+               puts "You drink the Tiny Attack Potion and gain 5 attack."
+               player_attack = player_attack + 5
+               shop_ap = false
+          end
+end
+
+if player_health <= 0
+     puts "You have died. Game Over!"
+     exit
+end
+
+if can_loot
+     puts "Since you are a Rogue, would you like to loot the room?"
+     puts "1. Yes"
+     puts "2. No"
+     loot_choice = gets.chomp
+     if loot_choice == "1"
+          puts "You find a pouch of 5 gold"
+          player_gold = player_gold + 5
+     elsif loot_choice == "2"
+          puts "You continue on your journey."
+     end
+end
+puts "As you are walking to the next room, you find a Small Healing Potion on the ground."
+potion_1 = true # Making sure the player can only use the potion once
+
+puts "You enter the next room. In front of the door, there is an Orc blocking your path."
+orc_health = 50
+orc_attack = 10
+
+while orc_health > 0 && player_health > 0
+     puts "What would you like to do?"
+     puts "1. Attack"
+     puts "2. Run"
+     if potion_1 == true
+          puts "3. Drink Small Healing Potion"
+     end
+     if can_channel == true
+          puts "4. Channel Energy"
+     end
+     action = gets.chomp
+
+     if action == "1"
+          puts "You attack the Orc."
+          puts "You deal #{player_attack} damage to the Orc."
+          orc_health = orc_health - player_attack
+
+          if orc_health > 0
+               puts "The Orc has #{orc_health} health left."
+               puts "The Orc attacks you."
+               puts "The Orc deals #{orc_attack} damage to you."
+               player_health = player_health - orc_attack
+               puts "You have #{player_health} health left."
+          else
+               puts "The Orc has been defeated!"
+          end
+     elsif action == "2"
+          puts "You run away from the Orc, pushing past it into the third room."
+          break
+     elsif action == "3"
+          puts "You drink the Healing Potion and gain 15 health."
+          player_health = player_health + 15
+          potion_1 = false
+     end
+         if action == "4"
+              puts "You channel your energy and gain 10 health."
+              player_health = player_health + 10
+              can_channel = false
+          end
+end
+
+if player_health <= 0
+     puts "You have died. Game Over!"
+     exit
+end
+
+if orc_health <= 0 && can_loot
+     puts "Since you are a Rogue, would you like to loot the room?"
+     puts "1. Yes"
+     puts "2. No"
+     loot_choice = gets.chomp
+     if loot_choice == "1"
+          puts "You find 50 gold."
+          player_gold = player_gold + 50
+     elsif loot_choice == "2"
+          puts "You continue on your journey."
+     end
+end
+puts "You enter the final room. In front of the door, there is a Dragon blocking your path."
+dragon_health = 75
+dragon_attack = 20
+          while  dragon_health > 0 && player_health > 0
+                puts "What would you like to do?"
+                puts "1. Attack"
+                puts "2. Run"
+                if potion_1 == true
+                      puts "3. Drink Healing Potion"
+               end
+               if can_channel == true
+                    puts "4. Channel Energy"
+               end
+                action = gets.chomp
+                if action == "1"
+                      puts "You attack the Dragon."
+                      puts "You deal #{player_attack} damage to the Dragon."
+                      dragon_health = dragon_health - player_attack
+                     puts "The Dragon has #{dragon_health} health left."
+                     puts "The Dragon attacks you."
+                     puts "The Dragon deals #{dragon_attack} damage to you."
+                     player_health = player_health - dragon_attack
+               end
+
+               if action  == "2" 
+                     puts "You can't run away from the dragon, it's blocking the exit" 
+                end
+                if action == "3"
+                      puts "You drink the Small Healing Potion and gain 15 health."
+                     player_health = player_health + 15
+                     potion_1 = false
+                end     
+                if action == "4"
+                     puts "You channel your energy and gain 10 health."
+                     player_health = player_health + 10
+                     can_channel = false
+                end
+                if dragon_health <= 0
+                     puts "You have defeated the Dragon!"
+                end
+           end
+
