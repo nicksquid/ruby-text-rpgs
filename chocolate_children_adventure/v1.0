@@ -1,0 +1,2724 @@
+# ============================================
+# CHOCOLATE CHILDREN ADVENTURE SIMULATOR
+# ============================================
+# A text-based Ruby game about managing a chocolate child business
+# for the 67 Mafia across 16 days with multiple endings.
+#
+# GAME STRUCTURE:
+# - Days 1-3: Tutorial & introduction to core mechanics
+# - Days 4-10: Unlocking features and building resources
+# - Days 11-13: Special rare children and narrative hints
+# - Days 14-16: Reality breakdown and multiple endings
+#
+# CORE SYSTEMS:
+# - Child Type System: 12 different chocolate child types with unique values
+# - Discovery System: Pokédex-style collection tracking
+# - Unlock System: Progressive content gating through story events
+# - Ending System: Three distinct endings based on player choices
+#
+# ============================================
+# CHILD TYPES - ADD NEW CHILDREN HERE!
+# ============================================
+# To add a new child type, just add a new line to this array:
+# { name: "type name", code: "unique_code", buy: price, sell: price, rep: reputation_value }
+# The :code field MUST be unique to prevent variable name collisions!
+CHILD_TYPES = [
+  { name: "white chocolate", code: "w", buy: 5, sell: 5, rep: 1 },
+  { name: "milk chocolate", code: "m", buy: 10, sell: 10, rep: 2 },
+  { name: "dark chocolate", code: "d", buy: 15, sell: 15, rep: 3 },
+  { name: "black chocolate", code: "b", buy: 20, sell: 20, rep: 4 },
+  { name: "rainbow chocolate", code: "r", buy: 25, sell: 25, rep: 5 },
+  { name: "golden chocolate", code: "go", buy: 30, sell: 30, rep: 6 },
+  { name: "platinum chocolate", code: "p", buy: 35, sell: 35, rep: 7 },
+  { name: "diamond chocolate", code: "di", buy: 40, sell: 40, rep: 8 },
+  { name: "chromatic chocolate", code: "c", buy: 45, sell: 45, rep: 9 },
+  { name: "wooden chocolate", code: "wo", buy: 1, sell: 1, rep: 0 },
+  { name: "glitched chocolate", code: "gl", buy: 0, sell: 0, rep: -5 },
+  { name: "joe's chocolate", code: "jc", buy: 0, sell: 0, rep: 1 }
+  
+]
+
+# Initialize child counts - this creates variables for each type
+# Creates var names using the unique code for each child type
+CHILD_TYPES.each do |child|
+  var_name = "$#{child[:code]}_child"
+  eval("#{var_name} = 0")
+end
+
+# ============================================
+# CHILD DISCOVERY TRACKING SYSTEM (POKÉDEX)
+# ============================================
+# Initialize discovery hash - tracks which children have been discovered
+$discovered_children = {}
+CHILD_TYPES.each do |child|
+  $discovered_children[child[:name]] = false
+end
+
+## discover_child(child_name)
+## Summary: Marks a child type as discovered in the collection registry
+## Parameters:
+##   - child_name: String name of the child type (e.g., "white chocolate")
+## Effects:
+##   - Sets $discovered_children[child_name] to true
+##   - Displays "NEW ENTRY ADDED" notification to player (only on first discovery)
+##   - Called automatically when player acquires children through shop, events, or cloning
+def discover_child(child_name)
+  if $discovered_children.key?(child_name) && !$discovered_children[child_name]
+    $discovered_children[child_name] = true
+    puts "*** NEW ENTRY ADDED TO YOUR COLLECTION! ***"
+    puts "*** #{child_name.capitalize} Child discovered! ***"
+  end
+end
+
+## pokedex_menu()
+## Summary: Displays the Child Collection Registry (Pokédex-style menu)
+## Parameters: None
+## Effects:
+##   - Shows all 12 child types with discovery status
+##   - Discovered children: displays full stats (buy/sell price, reputation)
+##   - Locked children: shows ??? placeholders with cryptic hints
+##   - Displays progress counter (e.g., "Progress: 5/12 discovered")
+##   - Does not modify any global state
+def pokedex_menu
+  puts "=================================="
+  puts "    CHILD COLLECTION REGISTRY"
+  puts "=================================="
+  
+  discovered_count = $discovered_children.values.count(true)
+  total_count = CHILD_TYPES.length
+  
+  puts "Progress: #{discovered_count}/#{total_count} discovered"
+  puts "=================================="
+  
+  CHILD_TYPES.each_with_index do |child, index|
+    if $discovered_children[child[:name]]
+      # Show full details for discovered children
+      puts "\n##{index + 1} - #{child[:name].capitalize} Child"
+      puts "  Buy Price: $#{child[:buy]}"
+      puts "  Sell Price: $#{child[:sell]}"
+      puts "  Mafia Rep: +#{child[:rep]}"
+      puts "  Status: DISCOVERED ✓"
+    else
+      # Show locked/mystery entry
+      puts "\n##{index + 1} - ??? ??? ???"
+      puts "  Buy Price: ???"
+      puts "  Sell Price: ???"
+      puts "  Mafia Rep: ???"
+      puts "  Status: LOCKED"
+      
+      # Add cryptic hints based on the child type
+      case child[:name]
+      when "rainbow chocolate"
+        puts "  Hint: Answer the door when opportunity knocks..."
+      when "golden chocolate"
+        puts "  Hint: The Mafia rewards those with high reputation..."
+      when "platinum chocolate"
+        puts "  Hint: Only the most dedicated collectors find this..."
+      when "diamond chocolate"
+        puts "  Hint: A rare treasure awaits the persistent..."
+      when "chromatic chocolate"
+        puts "  Hint: The rarest of them all..."
+      when "wooden chocolate"
+        puts "  Hint: Don't talk to strangers..."
+      when "glitched chocolate"
+        puts "  Hint: Freedom..."
+      end
+    end
+  end
+  
+  puts "\n=================================="
+  puts "Press Enter to return..."
+  gets
+end
+
+# ============================================
+# REFACTORED MENU FUNCTIONS
+# Use these instead of shop_menu1, sell_menu1, etc.
+# ============================================
+
+## shop_menu()
+## Summary: Displays the Market where players buy children, food, and build cloning machine
+## Parameters: None
+## Effects:
+##   - Filters available children based on unlock flags ($rainbow_unlocked, $golden_unlocked, etc.)
+##   - Deducts $money when purchases are made
+##   - Increments child count variables (e.g., $w_child, $m_child)
+##   - Increments $total_children counter
+##   - Increments $food when food is purchased
+##   - Sets $clone_machine to true when machine is built
+##   - Calls discover_child() for newly purchased children (if $has_registry is true)
+## Note: Uses dynamic eval() to access child count variables by their unique :code
+def shop_menu
+  puts "-------------------------"
+  puts "Market"
+  
+  # Filter available child types based on unlock status
+  available_children = CHILD_TYPES.select do |child|
+    (child[:name] != "rainbow chocolate" || $rainbow_unlocked == true) &&
+    (child[:name] != "golden chocolate" || $golden_unlocked == true) &&
+    (child[:name] != "platinum chocolate" || $platinum_unlocked == true) &&
+    (child[:name] != "diamond chocolate" || $diamond_unlocked == true) &&
+    (child[:name] != "chromatic chocolate" || $chromatic_unlocked == true) &&
+    (child[:name] != "wooden chocolate" || $wooden_unlocked == true) &&
+    (child[:name] != "glitched chocolate" || $glitched_unlocked == true) &&
+    (child[:name] != "joe's chocolate")
+  end
+  
+  # Display available child types
+  available_children.each_with_index do |child, index|
+    puts "#{index + 1}: #{child[:name].capitalize} child - $#{child[:buy]}"
+  end
+  
+  puts "#{available_children.length + 1}: Food - $1"
+  
+  # Show build option if blueprint is available and machine not built
+  build_option_index = available_children.length + 2
+  if $clone_bp == true && $clone_machine != true
+    puts "#{build_option_index}: Build Cloning Machine - $50"
+    build_option_index += 1
+  end
+  
+  puts "#{build_option_index}: Exit Shop"
+  puts "-------------------------"
+  puts "You have $#{$money} dollars."
+  
+  shop_choice = gets.chomp.to_i
+  
+  # Handle child purchases
+  if shop_choice >= 1 && shop_choice <= available_children.length
+    child = available_children[shop_choice - 1]
+    var_name = "$#{child[:code]}_child"
+    
+    if $money >= child[:buy]
+      puts "You bought a #{child[:name]} child."
+      $money -= child[:buy]
+      eval("#{var_name} += 1")
+      $total_children += 1
+      discover_child(child[:name]) if $has_registry
+      puts "You now have #{eval(var_name)} #{child[:name]} child(ren)."
+      puts "You have $#{$money} dollars left."
+      puts "You have #{$total_children} children in total."
+    else
+      puts "You do not have enough money."
+      puts "You have $#{$money} dollars."
+    end
+  
+  # Handle food purchase
+  elsif shop_choice == available_children.length + 1
+    if $money >= 1
+      puts "You bought 1 food."
+      $money -= 1
+      $food += 1
+      puts "You have $#{$money} dollars left."
+      puts "You have #{$food} food."
+    else
+      puts "You do not have enough money."
+      puts "You have $#{$money} dollars."
+    end
+  
+  # Handle building cloning machine
+  elsif shop_choice == available_children.length + 2 && $clone_bp == true && $clone_machine != true
+    if $money >= 50
+      puts "You built a cloning machine."
+      puts "The cloning machine will be ready tomorrow."
+      $money -= 50
+      puts "You now have $#{$money} dollars."
+      $clone_machine = true
+    else
+      puts "You do not have enough money."
+      puts "You have $#{$money} dollars."
+    end
+  
+  # Handle exit (this is either option 7 or 8 depending on whether build is shown)
+  elsif shop_choice == build_option_index
+    puts "You have exited the shop."
+  end
+end
+
+## sell_menu()
+## Summary: Displays the Black Market where players sell children for money
+## Parameters: None
+## Effects:
+##   - Dynamically builds menu showing only children the player owns (count > 0)
+##   - Adds $money when children are sold
+##   - Decrements child count variables (e.g., $w_child, $m_child)
+##   - Decrements $total_children counter
+##   - Loops until player exits or has no children left to sell
+## Note: Uses dynamic eval() to check and modify child count variables
+def sell_menu
+   sell_key = true
+   while sell_key == true
+      puts "--------------------------"
+      puts "Black Market - Sell Children"
+      puts "--------------------------"
+      puts "You have $#{$money} dollars."
+      puts "You have #{$total_children} children in total."
+      puts "--------------------------"
+      
+      if $total_children == 0
+         puts "You do not have any children to sell."
+         sell_key = false
+      else
+         puts "What would you like to sell?"
+         
+         # Build menu dynamically
+         options = []
+         CHILD_TYPES.each do |child|
+           var_name = "$#{child[:code]}_child"
+           count = eval(var_name)
+           if count > 0
+             options << child
+           end
+         end
+         
+         # Display options
+         options.each_with_index do |child, index|
+           puts "#{index + 1}: #{child[:name].capitalize} child - $#{child[:sell]}"
+         end
+         puts "#{options.length + 1}: Exit Market"
+         
+         sell_choice = gets.chomp.to_i
+         
+         # Handle selection
+         if sell_choice >= 1 && sell_choice <= options.length
+           child = options[sell_choice - 1]
+           var_name = "$#{child[:code]}_child"
+           
+           puts "You sold a #{child[:name]} child."
+           $money += child[:sell]
+           eval("#{var_name} -= 1")
+           $total_children -= 1
+           puts "You now have $#{$money} dollars."
+         elsif sell_choice == options.length + 1
+           puts "You have exited the market."
+           sell_key = false
+         else
+           puts "Invalid choice."
+         end
+      end
+   end
+end
+
+## eat_menu()
+## Summary: Displays the Feast Hall where players consume children to gain Mafia Reputation
+## Parameters: None
+## Effects:
+##   - Dynamically builds menu showing only children the player owns (count > 0)
+##   - Increments $mafia_rep based on child's reputation value
+##   - Decrements child count variables (e.g., $w_child, $m_child)
+##   - Decrements $total_children counter
+##   - Loops until player exits or has no children left to eat
+## Note: Uses dynamic eval() to check and modify child count variables
+## Strategic Value: Mafia Reputation unlocks golden (50 rep) and diamond (75 rep) children
+def eat_menu
+   eat_key = true
+   while eat_key == true
+      puts "--------------------------"
+      puts "Feast Hall - Eat Children"
+      puts "--------------------------"
+      puts "You have #{$total_children} children in total."
+      puts "You have #{$mafia_rep} Mafia Reputation."
+      puts "--------------------------"
+      
+      if $total_children == 0
+         puts "You do not have any children to eat."
+         eat_key = false
+      else
+         puts "Which child would you like to eat?"
+         
+         # Build menu dynamically
+         options = []
+         CHILD_TYPES.each do |child|
+           var_name = "$#{child[:code]}_child"
+           count = eval(var_name)
+           if count > 0
+             options << child
+           end
+         end
+         
+         # Display options
+         options.each_with_index do |child, index|
+           puts "#{index + 1}: #{child[:name].capitalize} child - +#{child[:rep]} Mafia Rep"
+         end
+         puts "#{options.length + 1}: Exit Feast Hall"
+         
+         eat_choice = gets.chomp.to_i
+         
+         # Handle selection
+         if eat_choice >= 1 && eat_choice <= options.length
+           child = options[eat_choice - 1]
+           var_name = "$#{child[:code]}_child"
+           
+           puts "You ate a #{child[:name]} child."
+           eval("#{var_name} -= 1")
+           $total_children -= 1
+           $mafia_rep += child[:rep]
+           puts "You now have #{$mafia_rep} Mafia Reputation."
+         elsif eat_choice == options.length + 1
+           puts "You have exited the feast hall."
+           eat_key = false
+         else
+           puts "Invalid choice."
+         end
+      end
+   end
+end
+
+## raise_menu()
+## Summary: Allows players to feed children (consume food to prevent starvation)
+## Parameters: None
+## Effects:
+##   - Decrements $food counter when feeding children
+##   - Increments $total_rchildren counter (raised children)
+##   - Currently implemented as placeholder (no actual starvation mechanic)
+##   - Exits automatically after one feeding cycle through all child types
+## Note: This function exists for thematic consistency but doesn't affect gameplay outcomes
+def raise_menu
+   raise_key = true
+   while raise_key == true
+      if $total_children == 0
+         puts "You do not have any children to raise."
+         raise_key = false
+      elsif $food == 0
+         puts "You do not have any food to raise children."
+         raise_key = false
+      else
+         # Go through each child type
+         CHILD_TYPES.each do |child|
+           var_name = "$#{child[:code]}_child"
+           count = eval(var_name)
+           
+           if count > 0 && $food > 0
+             puts "Raise 1 #{child[:name]} child? -1 Food"
+             puts "1: Yes"
+             puts "2: No"
+             choice = gets.chomp
+             
+             if choice == "1" && $food > 0
+               puts "You raised a #{child[:name]} child."
+               $food -= 1
+               $total_rchildren += 1
+               puts "You have #{$total_children} children in total."
+               puts "You have #{$food} food left."
+             elsif choice == "2"
+               puts "You did not raise a #{child[:name]} child."
+             end
+           end
+         end
+         raise_key = false
+      end
+   end
+end
+
+## clone_menu()
+## Summary: Allows players to clone children using the cloning machine (unlocked on Day 4)
+## Parameters: None
+## Effects:
+##   - Dynamically builds menu showing only children the player owns (count > 0)
+##   - Decrements $money by $20 per clone
+##   - Increments child count variables when cloning succeeds (e.g., $w_child, $m_child)
+##   - Increments $total_children counter
+##   - Calls discover_child() for newly cloned children (if $has_registry is true)
+##   - Loops until player exits or has no children left to clone
+## Unlock Condition: Requires $clone_machine == true (built on Day 4)
+def clone_menu
+   clone_key = true
+   while clone_key == true
+      puts "--------------------------"
+      puts "Cloning Lab - Clone Children"
+      puts "--------------------------"
+      puts "You have $#{$money} dollars."
+      puts "You have #{$total_children} children in total."
+      puts "--------------------------"
+      
+      if $total_children == 0
+         puts "You do not have any children to clone."
+         clone_key = false
+      else
+         puts "Which child would you like to clone? ($20 each)"
+         
+         # Build menu dynamically
+         options = []
+         CHILD_TYPES.each do |child|
+           var_name = "$#{child[:code]}_child"
+           count = eval(var_name)
+           if count > 0
+             options << child
+           end
+         end
+         
+         # Display options
+         options.each_with_index do |child, index|
+           puts "#{index + 1}: #{child[:name].capitalize} child - $20"
+         end
+         puts "#{options.length + 1}: Exit Cloning Lab"
+         
+         clone_choice = gets.chomp.to_i
+         
+         # Handle selection
+         if clone_choice >= 1 && clone_choice <= options.length
+           child = options[clone_choice - 1]
+           var_name = "$#{child[:code]}_child"
+           
+           if $money >= 20
+             puts "You cloned a #{child[:name]} child."
+             $money -= 20
+             eval("#{var_name} += 1")
+             $total_children += 1
+             discover_child(child[:name]) if $has_registry
+             puts "You now have #{eval(var_name)} #{child[:name]} child(ren)."
+             puts "You have $#{$money} dollars left."
+             puts "You have #{$total_children} children in total."
+           else
+             puts "You do not have enough money."
+             puts "You need $20 to clone a child."
+             puts "You have $#{$money} dollars."
+           end
+         elsif clone_choice == options.length + 1
+           puts "You have exited the cloning lab."
+           clone_key = false
+         else
+           puts "Invalid choice."
+         end
+      end
+   end
+end
+
+# ============================================
+# HOW TO USE THE NEW MENU SYSTEM FOR NEW DAYS:
+# ============================================
+# Example structure for Day 4+:
+#
+# day4_key = true
+# while day4_key == true
+#   puts "Day 4, Week 1"
+#   puts "You have $#{$money} dollars."
+#   puts "You have #{$total_children} children in total."
+#   puts "What would you like to do?"
+#   puts "1: Sell Child(ren)"
+#   puts "2: Eat Child(ren)"
+#   puts "3: Raise Child(ren)"
+#   puts "4: Visit Shop"
+#   puts "5: End Day"
+#   
+#   action_choice = gets.chomp
+#   
+#   if action_choice == "1"
+#     sell_menu          # <-- Just call sell_menu (no number!)
+#   elsif action_choice == "2"
+#     eat_menu           # <-- Just call eat_menu
+#   elsif action_choice == "3"
+#     raise_menu         # <-- Just call raise_menu
+#   elsif action_choice == "4"
+#     shop_menu          # <-- Just call shop_menu
+#   elsif action_choice == "5"
+#     day4_key = false
+#   end
+# end
+# ============================================
+
+puts "Hello, and welcome to Chocolate Children Adventure Simulator."
+puts "Developed by Pastel Productions."
+puts "Please enter your name."
+name = gets.chomp.downcase
+if name == "joe"
+   $joe_key = true
+end #What u think
+puts "Hello, #{name}"
+puts "Tutorial:"
+puts "In this game, you are a member of the 67 Mafia"    #Tutorial
+puts "You must raise, sell, and eat your children to survive."
+puts "You will start with 10 dollars to fund your operations"
+puts "Buy children and food from the shop, and sell children on the black market"
+puts "You can also eat children to gain Mafia Reputation"
+puts "Each day you will earn passive income: $5 base + $1 per reputation point"
+puts "Good luck, #{name}."
+                                  #Note to Adam: lmk for any changes
+# ============================================
+# GAME INITIALIZATION - GLOBAL STATE VARIABLES
+# ============================================
+# Note: Child count variables ($w_child, $m_child, etc.) are automatically initialized at the top of the file
+$shop_key = true          # Legacy variable (not currently used)
+$money = 10               # Player's starting money
+$total_children = 0       # Total count of all children owned
+$total_rchildren = 0      # Total count of raised/fed children (legacy, not used)
+$food = 0                 # Food units for raising children
+$mafia_rep = 0            # Mafia Reputation (unlocks golden at 50, diamond at 75)
+
+# Unlock flags - control which child types are available in shop
+$clone_bp = false         # Cloning machine blueprint (unlocked Day 4)
+$clone_machine = false    # Cloning machine built status (player builds in shop)
+$rainbow_unlocked = false # Rainbow chocolate (unlocked Day 3)
+$golden_unlocked = false  # Golden chocolate (unlocked Day 9 at 50+ rep)
+$platinum_unlocked = false # Platinum chocolate (unlocked Day 10 via trade)
+$diamond_unlocked = false # Diamond chocolate (unlocked Day 12 at 75+ rep)
+$chromatic_unlocked = false # Chromatic chocolate (unlocked Day 13 via trade)
+$wooden_unlocked = false  # Wooden chocolate (unlocked Day 7 via scam)
+$glitched_unlocked = false # Glitched chocolate (never in shop, Day 6 malfunction only)
+$has_registry = false     # Child Collection Registry obtained (granted Day 2)
+
+# ============================================
+# PASSIVE INCOME HELPER
+# ============================================
+def apply_daily_income
+  daily_income = 5.0 + (1.0 * $mafia_rep)
+  $money += daily_income
+  $money = $money.round(2) # Round to 2 decimal places to avoid float drift
+  puts "~~ Daily Income ~~"
+  puts "You earned $#{daily_income.round(2)} ($5 base + $1 × #{$mafia_rep} reputation)"
+  puts "Total money: $#{$money}"
+  puts ""
+end
+
+# ============================================
+# DAY 1 - TUTORIAL DAY
+# ============================================
+# Purpose: Introduce core mechanics (buy, sell, eat, raise)
+# Unlocks: None
+# Events: None (standard gameplay loop)
+apply_daily_income
+day1_key = true
+while day1_key == true
+  puts "--------------------------"
+  puts "Day 1, Week 1"
+  puts "--------------------------"
+  puts "You have $#{$money} dollars."
+  puts "You have #{$total_children} children in total."
+  puts "You have #{$food} food."
+  puts "--------------------------"
+  puts "What would you like to do?"
+  puts "1: Sell Child(ren)"
+  puts "2: Eat Child(ren)"
+  puts "3: Raise Child(ren)"
+  puts "4: Visit Shop"
+  puts "5: End Day"
+  puts "--------------------"
+  action_choice = gets.chomp
+
+   if action_choice == "1"
+       sell_menu
+   end
+
+   if action_choice == "2"
+       eat_menu
+   end
+   if action_choice == "3"
+       raise_menu
+   end                      # <--- Calling the variables 
+                           # <--- Js retype the variables to call them
+  if action_choice == "4"
+      shop_menu
+     
+     # ^ They have 1 bc i have to retype it everytime you unlock new fetus
+  end
+
+  #Code for ending the day
+  if action_choice == "5"
+      puts "Day 1 has ended."
+      day1_key = false
+  end
+end
+if day1_key == false && $total_rchildren > 0
+   puts "Since you have raised #{$total_rchildren} children, you have put them to work in the mines."
+   puts "They have earned you $#{$total_rchildren} dollars."
+    $money = $money + $total_rchildren
+    puts "You now have $#{$money} dollars."
+end
+if day1_key == false && $total_rchildren == 0
+    puts "You have not raised any children."
+    puts "You have $#{$money} dollars."
+end
+
+#Day 2 Start - Record Keeper Event
+apply_daily_income
+puts "--------------------------"
+puts "Day 2, Week 1"
+puts "--------------------------"
+puts "A mysterious figure in a dark cloak approaches your dwelling."
+puts "They carry a large leather-bound book."
+puts "Talk to them? (y/n)"
+puts "--------------------------"
+record_keeper_choice = gets.chomp.downcase
+
+if record_keeper_choice == "y"
+    puts "The figure speaks in a raspy whisper:"
+    puts "'I am the Record Keeper of the 67 Mafia.'"
+    puts "'I track all... acquisitions... made by our members.'"
+    puts "'Here, take this registry. Use it to document your collection.'"
+    puts "'The Mafia values those who collect rare specimens...'"
+    puts "The figure hands you an ornate black book and vanishes into the shadows."
+    puts ""
+    puts "*** YOU RECEIVED: CHILD COLLECTION REGISTRY ***"
+    puts "*** You can now view your discovered children at any time! ***"
+    $has_registry = true
+    
+    # Mark any children you already have as discovered
+    CHILD_TYPES.each do |child|
+      var_name = "$#{child[:code]}_child"
+      count = eval(var_name)
+      if count > 0
+        discover_child(child[:name])
+      end
+    end
+elsif record_keeper_choice == "n"
+    puts "You ignore the figure. They shake their head and disappear."
+    puts "Perhaps they will return another day..."
+end
+
+puts ""
+
+# ============================================
+# DAY 2 - THE RECORD KEEPER EVENT
+# ============================================
+# Purpose: Introduce the Child Collection Registry (Pokédex system)
+# Event: Mysterious Record Keeper offers the collection tracking book
+# Unlocks: $has_registry = true (enables "View Collection" menu option)
+# Rewards: Child Collection Registry (tracks all discovered children)
+# Design Note: Registry auto-discovers any children player already owns
+day2_key = true
+while day2_key == true
+    puts "--------------------------"
+    puts "Day 2, Week 1"
+    puts "--------------------------"  
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    if $has_registry
+        puts "5: View Collection"
+        puts "6: End Day"
+    else
+        puts "5: End Day"
+    end
+    puts "--------------------"
+    action_choice = gets.chomp
+
+if  action_choice == "1"
+    sell_menu
+end
+if action_choice == "2"
+    eat_menu   #Again, massive blocks have been packed into 3-4 lines
+
+end
+if action_choice == "3"
+    raise_menu
+end
+if action_choice == "4"
+    shop_menu
+    puts "You have entered the shop."
+end
+if action_choice == "5" && $has_registry
+    pokedex_menu
+end
+if action_choice == "6" && $has_registry
+    day2_key = false
+    puts "Day 2 has ended."
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "You have #{$mafia_rep} Mafia Reputation."
+    puts "You have #{$total_rchildren} raised children."
+end
+if action_choice == "5" && !$has_registry
+    day2_key = false
+    puts "Day 2 has ended."
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "You have #{$mafia_rep} Mafia Reputation."
+    puts "You have #{$total_rchildren} raised children."
+end
+#Still trying to pack into variables
+   if day2_key == false && $total_rchildren > 0
+   puts "Since you have raised #{$total_rchildren} children, you have put them to work in the mines."
+    puts "They have earned you $#{$total_rchildren} dollars."
+    $money = $money + $total_rchildren
+    puts "You now have $#{$money} dollars."
+end
+    if day2_key == false && $total_rchildren == 0
+        puts "You have not raised any children."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+    end
+end
+#Day 3 Start pt 1
+apply_daily_income
+    
+puts "--------------------------"
+puts "Day 3, Week 1"
+puts "A knock at the door." 
+puts "Answer the door? (y/n)"
+puts "--------------------------"
+door_choice = gets.chomp.downcase
+
+#Getting rainbow child
+if door_choice == "y"
+    puts "A man in a suit approaches you."
+    puts "He offers you a mysterious cardboard box for $7"
+    puts "Do you accept? (y/n)"
+    box_choice = gets.chomp.downcase
+    if box_choice == "y"
+        if $money >= 7
+            puts "You bought the mysterious cardboard box."
+            $money = $money - 7
+            puts "You now have $#{$money} dollars."
+            puts "You open the box and find a Rainbow Chocolate Child."
+            $r_child = $r_child + 1
+            $total_children = $total_children + 1
+            $rainbow_unlocked = true
+            discover_child("rainbow chocolate") if $has_registry
+            puts "You now have #{$total_children} children in total."
+        end
+        if $money < 7
+            puts "You do not have enough money."
+            puts "You have $#{$money} dollars."
+            puts "You did not buy the mysterious cardboard box."
+        end 
+        if box_choice == "n"
+            puts "You did not buy the mysterious cardboard box."
+        end
+    end
+end
+if door_choice == "n"
+    puts "You did not answer the door."
+end
+#Day 3 Start pt 2
+day3_key = true
+while day3_key == true
+    puts "--------------------------"
+    puts "Day 3, Week 1"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    if $has_registry
+        puts "5: View Collection"
+        puts "6: End Day"
+    else
+        puts "5: End Day"
+    end
+    puts "--------------------"
+    action_choice3 = gets.chomp
+    if action_choice3 == "1"
+        sell_menu
+    end
+
+if action_choice3 == "2"
+       eat_menu
+end
+
+   if action_choice3 == "3"
+       raise_menu
+   end
+
+   if action_choice3 == "4"
+       shop_menu
+   end
+   
+   if action_choice3 == "5" && $has_registry
+       pokedex_menu
+   end
+   
+   if action_choice3 == "6" && $has_registry
+       day3_key = false
+       puts "Day 3 has ended."
+   end
+   
+   if action_choice3 == "5" && !$has_registry
+       day3_key = false
+       puts "Day 3 has ended."
+   end
+end
+#Day 4 door cutscene
+apply_daily_income
+day4_door_key = true
+while day4_door_key == true
+    puts "--------------------------"
+    puts "Day 4, Week 1"
+    puts "--------------------------"
+    puts "A knock at the door."
+    puts "Answer the door? (y/n)"
+    puts "--------------------------"
+    door_choice = gets.chomp.downcase
+    if door_choice == "y"
+      puts   "A short man in a black suit and fedora with 2 bodyguards approaches you." 
+      puts   "He is an envoy from the 67 mafia and he is here to                 congratulate you on your successes."
+      puts "He hands you a sealed envelope and leaves."
+      puts "Open the envelope? (y/n)"
+      envelope_choice = gets.chomp.downcase
+       if envelope_choice == "y"
+           puts "You open the envelope and find a blueprint for a child cloning machine."
+            puts "The cloning machine costs $50 to build."
+            puts "It will allow you to clone children for $20 each."
+            day4_door_key = false
+            $clone_bp = true
+       end 
+       if envelope_choice == "n"
+           puts "You did not open the envelope."
+           day4_door_key = false
+       end
+    end
+    if door_choice == "n"
+        puts "You did not answer the door."
+        day4_door_key = false
+    end 
+end 
+#Real day 4 start
+day4_key = true
+while day4_key == true
+    puts "--------------------------"
+    puts "Day 4, Week 1"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_bp == true
+        puts "#{menu_offset}: Build Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+   day4choice = gets.chomp
+
+    if day4choice == "1"
+        sell_menu
+    end
+    if day4choice == "2"
+        eat_menu
+    end
+    if day4choice == "3"
+        raise_menu
+    end
+    if day4choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day4choice == current_option.to_s && $clone_bp == true
+        shop_menu
+        current_option += 1
+    elsif !$clone_bp
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day4choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day4choice == current_option.to_s
+        day4_key = false
+        puts "Day 4 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+        puts "You have #{$total_rchildren} raised children."
+         if $clone_machine == true
+             puts "You have a cloning machine."
+         end
+    end
+end  #<--- End of day 4
+#Day 5 start
+apply_daily_income
+day5_key = true
+while day5_key == true
+    puts "--------------------------"
+    puts "Day 5, Week 1"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day5choice = gets.chomp
+    
+    if day5choice == "1"
+        sell_menu
+    end
+    if day5choice == "2"
+        eat_menu
+    end
+    if day5choice == "3"
+        raise_menu
+    end
+    if day5choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day5choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day5choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day5choice == current_option.to_s
+        day5_key = false
+        puts "Day 5 has ended."
+    end
+end  #<--- End of day 5
+
+#Day 6 - Cloning Machine Malfunction Event
+apply_daily_income
+puts "--------------------------"
+puts "Day 6, Week 1"
+puts "--------------------------"
+puts "BZZZT! CRACK! SPARK!"
+puts "Your cloning machine suddenly erupts with sparks and smoke!"
+puts "Warning lights flash as the machine shudders violently."
+puts ""
+
+if $total_children > 0
+  # Randomly select one child type that the player has
+  available_types = CHILD_TYPES.select do |child|
+    var_name = "$#{child[:code]}_child"
+    eval(var_name) > 0
+  end
+  
+  if available_types.length > 0
+    sacrificed_child = available_types.sample
+    var_name = "$#{sacrificed_child[:code]}_child"
+    
+    puts "The machine's containment field ruptures!"
+    puts "One of your #{sacrificed_child[:name]} children is pulled into the malfunction!"
+    puts ""
+    puts "..."
+    puts ""
+    puts "The smoke clears."
+    puts "Something crawls out of the machine..."
+    puts ""
+    puts "It's... wrong. Corrupted. Glitching."
+    puts ""
+    puts "*** YOU OBTAINED: GLITCHED CHOCOLATE CHILD ***"
+    puts "*** The child flickers with unstable energy... ***"
+    
+    # Remove the sacrificed child and add glitched child
+    eval("#{var_name} -= 1")
+    $gl_child += 1
+    $glitched_unlocked = true
+    discover_child("glitched chocolate") if $has_registry
+    
+    puts ""
+    puts "The cloning machine continues to spark and smoke."
+    puts "It looks... damaged. But still functional."
+  end
+else
+  puts "The machine malfunctions, but without any children inside,"
+  puts "it just sparks harmlessly and shuts down temporarily."
+  puts "You dodged a bullet there..."
+end
+
+puts ""
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 6 - CLONING MACHINE MALFUNCTION
+# ============================================
+# Purpose: Introduce the glitched chocolate child (critical for endings!)
+# Event: Cloning machine catastrophically malfunctions
+# Mechanism: Randomly selects one owned child and consumes it
+# Reward: 1 glitched chocolate child (worthless but ESSENTIAL for escape endings)
+# Design Note: Glitched child is the "bug in the system" - keeping it enables escape
+# Strategic Importance: Players must resist selling for Day 8's $10,000 offer to reach good endings
+day6_key = true
+while day6_key == true
+    puts "--------------------------"
+    puts "Day 6, Week 1"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day6choice = gets.chomp
+    
+    if day6choice == "1"
+        sell_menu
+    end
+    if day6choice == "2"
+        eat_menu
+    end
+    if day6choice == "3"
+        raise_menu
+    end
+    if day6choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day6choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day6choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day6choice == current_option.to_s
+        day6_key = false
+        puts "Day 6 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+    end
+end  #<--- End of day 6
+
+#Day 7 - Scam Artist Encounter
+apply_daily_income
+puts "--------------------------"
+puts "Day 7, Week 1"
+puts "--------------------------"
+puts "A well-dressed stranger in a fancy suit approaches you."
+puts "They're carrying a polished wooden briefcase."
+puts ""
+puts "Talk to them? (y/n)"
+puts "--------------------------"
+scam_choice = gets.chomp.downcase
+
+if scam_choice == "y"
+    puts "The stranger flashes a gleaming smile."
+    puts "'Ah, a fellow connoisseur! I deal in *exclusive* specimens.'"
+    puts "'Hand-crafted wooden chocolate children - ultra-rare, artisan quality.'"
+    puts "'Eco-friendly. Organic. Sustainable. The future of the industry!'"
+    puts ""
+    puts "They open the briefcase, revealing a wooden chocolate child inside."
+    puts "It looks... suspiciously like it's made of actual wood."
+    puts ""
+    puts "'I'll make you a special offer - trade me ANY one of your children,'"
+    puts "'and this premium wooden specimen is yours.'"
+    puts "'Trust me, you're getting the better deal here...'"
+    puts ""
+    
+    if $total_children > 0
+        puts "Accept the trade? (y/n)"
+        trade_choice = gets.chomp.downcase
+        
+        if trade_choice == "y"
+            # Build list of child types player owns
+            available_for_trade = CHILD_TYPES.select do |child|
+                var_name = "$#{child[:code]}_child"
+                eval(var_name) > 0
+            end
+            
+            puts ""
+            puts "Which child would you like to trade away?"
+            available_for_trade.each_with_index do |child, index|
+                var_name = "$#{child[:code]}_child"
+                count = eval(var_name)
+                puts "#{index + 1}: #{child[:name].capitalize} child (you have #{count})"
+            end
+            puts "#{available_for_trade.length + 1}: Never mind, cancel the trade"
+            
+            trade_select = gets.chomp.to_i
+            
+            if trade_select >= 1 && trade_select <= available_for_trade.length
+                traded_child = available_for_trade[trade_select - 1]
+                var_name = "$#{traded_child[:code]}_child"
+                
+                puts ""
+                puts "You hand over one of your #{traded_child[:name]} children."
+                puts "The stranger hands you the wooden chocolate child."
+                puts ""
+                puts "*** YOU OBTAINED: WOODEN CHOCOLATE CHILD ***"
+                puts ""
+                puts "You examine it closely..."
+                puts "Wait a minute..."
+                puts "This is LITERALLY made of wood. Like, actual wood."
+                puts ""
+                puts "You look up. The stranger is already gone."
+                puts "You've been scammed."
+                puts ""
+                
+                # Execute the trade
+                eval("#{var_name} -= 1")
+                $wo_child += 1
+                $wooden_unlocked = true
+                discover_child("wooden chocolate") if $has_registry
+                
+                puts "The wooden chocolate child is now available in shops for $1."
+                puts "(Not that you'd want to buy more...)"
+            elsif trade_select == available_for_trade.length + 1
+                puts ""
+                puts "You decline the trade."
+                puts "The stranger looks disappointed but tips their hat and walks away."
+            end
+        elsif trade_choice == "n"
+            puts ""
+            puts "You decline the offer."
+            puts "The stranger shrugs. 'Your loss,' they say, and walks away."
+        end
+    else
+        puts "You don't have any children to trade."
+        puts "The stranger looks disappointed and walks away."
+        puts "'Come back when you have inventory,' they mutter."
+    end
+elsif scam_choice == "n"
+    puts "You ignore the suspicious stranger."
+    puts "They shrug and walk away, muttering about 'missed opportunities.'"
+end
+
+puts ""
+puts "Press Enter to continue..."
+gets
+
+#Day 7 Main Loop
+day7_key = true
+while day7_key == true
+    puts "--------------------------"
+    puts "Day 7, Week 1"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day7choice = gets.chomp
+    
+    if day7choice == "1"
+        sell_menu
+    end
+    if day7choice == "2"
+        eat_menu
+    end
+    if day7choice == "3"
+        raise_menu
+    end
+    if day7choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day7choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day7choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day7choice == current_option.to_s
+        day7_key = false
+        puts "Day 7 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+    end
+end  #<--- End of day 7
+
+#Day 8 - The Mysterious Buyer
+apply_daily_income
+puts "--------------------------"
+puts "Day 1, Week 2"
+puts "--------------------------"
+puts "A well-dressed professional in a pristine suit approaches you."
+puts "They're carrying a sleek tablet and a metal briefcase."
+puts ""
+puts "They adjust their glasses and speak in a calm, measured tone."
+puts ""
+puts "'Good evening. We represent Quality Control Division 7.'"
+puts "'Our systems have detected an anomalous specimen in the region.'"
+puts "'Model designation: GL-17CH3D. The glitched chocolate child.'"
+puts ""
+puts "They tap their tablet, showing strange readings and error codes."
+puts ""
+puts "'We're authorized to offer $10,000 for immediate acquisition and disposal.'"
+puts "'Standard protocol. Regulatory compliance. Nothing to worry about.'"
+puts ""
+puts "Their smile is professional. Too professional."
+puts ""
+
+if $gl_child > 0
+    puts "They're clearly talking about the glitched child in your possession."
+    puts ""
+    puts "Accept their offer? ($10,000 for the glitched child)"
+    puts "1: Sell the glitched child ($10,000)"
+    puts "2: Refuse the offer"
+    buyer_choice = gets.chomp
+    
+    if buyer_choice == "1"
+        puts ""
+        puts "You hand over the glitched chocolate child."
+        puts "The professional carefully places it in a specialized containment case."
+        puts "They transfer $10,000 to your account instantly."
+        puts ""
+        puts "*** YOU RECEIVED $10,000 ***"
+        puts ""
+        puts "'Excellent. The anomaly will be properly disposed of.'"
+        puts "'Thank you for your cooperation.'"
+        puts ""
+        puts "They leave quickly. Almost too quickly."
+        puts "You can't shake the feeling that they seemed... relieved."
+        puts ""
+        $gl_child -= 1
+        $total_children -= 1
+        $money += 10000
+    elsif buyer_choice == "2"
+        puts ""
+        puts "You refuse the offer."
+        puts ""
+        puts "The professional's smile falters for just a moment."
+        puts "You see something in their eyes - is that... concern? Fear?"
+        puts ""
+        puts "'I... see. That's unfortunate.'"
+        puts "'If you change your mind, we'll be monitoring the situation.'"
+        puts ""
+        puts "They leave, but keep glancing back at you nervously."
+        puts "What could possibly make them so desperate for a 'worthless' child?"
+    end
+else
+    puts "You don't have the glitched child anymore."
+    puts ""
+    puts "The professional looks at their tablet, confused."
+    puts ""
+    puts "'Our readings indicated... where is the specimen?'"
+    puts ""
+    
+    if $discovered_children["glitched chocolate"]
+        puts "You explain that you no longer have it."
+        puts ""
+        puts "Their face goes pale."
+        puts "'You... what? Where did it go?'"
+        puts ""
+        puts "They seem genuinely distressed."
+        puts "'This is highly irregular. We need to file a report immediately.'"
+        puts ""
+        puts "They leave in a hurry, speaking urgently into their phone."
+    else
+        puts "You tell them you've never had such a thing."
+        puts ""
+        puts "'Impossible. Our sensors detected... unless...'"
+        puts ""
+        puts "They leave, deeply troubled."
+    end
+end
+
+puts ""
+puts "Press Enter to continue..."
+gets
+
+#Day 8 Main Loop
+day8_key = true
+while day8_key == true
+    puts "--------------------------"
+    puts "Day 8, Week 2"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day8choice = gets.chomp
+    
+    if day8choice == "1"
+        sell_menu
+    end
+    if day8choice == "2"
+        eat_menu
+    end
+    if day8choice == "3"
+        raise_menu
+    end
+    if day8choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day8choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day8choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day8choice == current_option.to_s
+        day8_key = false
+        puts "Day 8 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+    end
+end  #<--- End of day 8
+
+#Day 9 - Golden Chocolate Unlock (Reputation Milestone)
+apply_daily_income
+puts "--------------------------"
+puts "Day 9, Week 2"
+puts "--------------------------"
+
+if $mafia_rep >= 50 && !$golden_unlocked
+    puts "A sharply-dressed envoy from the 67 Mafia arrives in a black limousine."
+    puts "They step out, carrying a golden briefcase with the mafia's insignia."
+    puts ""
+    puts "'Congratulations,' they say with a respectful nod."
+    puts "'You've reached 50 Mafia Reputation. You've proven your dedication.'"
+    puts ""
+    puts "They open the golden briefcase, revealing a shimmering golden chocolate child inside."
+    puts "The light reflects off its surface like liquid gold."
+    puts ""
+    puts "'Welcome to the Premium Tier. You now have access to our exclusive inventory.'"
+    puts "'Golden chocolate children - a symbol of status within the organization.'"
+    puts ""
+    puts "They hand you the golden child from the briefcase."
+    puts ""
+    puts "*** YOU OBTAINED: GOLDEN CHOCOLATE CHILD ***"
+    puts "*** GOLDEN CHOCOLATE CHILDREN ARE NOW AVAILABLE IN SHOPS ***"
+    puts ""
+    $go_child += 1
+    $total_children += 1
+    $golden_unlocked = true
+    discover_child("golden chocolate") if $has_registry
+    puts "'Keep up the good work,' the envoy says before driving away."
+    puts ""
+else
+    puts "Another day in the business."
+    if $mafia_rep < 50
+        puts "You currently have #{$mafia_rep} Mafia Reputation."
+        puts "(Reach 50 Reputation to unlock premium inventory...)"
+    end
+    puts ""
+end
+
+puts "Press Enter to continue..."
+gets
+
+#Day 9 Main Loop
+day9_key = true
+while day9_key == true
+    puts "--------------------------"
+    puts "Day 9, Week 2"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day9choice = gets.chomp
+    
+    if day9choice == "1"
+        sell_menu
+    end
+    if day9choice == "2"
+        eat_menu
+    end
+    if day9choice == "3"
+        raise_menu
+    end
+    if day9choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day9choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day9choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day9choice == current_option.to_s
+        day9_key = false
+        puts "Day 9 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+    end
+end  #<--- End of day 9
+
+#Day 10 - Platinum Exchange
+apply_daily_income
+puts "--------------------------"
+puts "Day 10, Week 2"
+puts "--------------------------"
+puts "A mysterious collector in an elegant coat approaches you."
+puts "They're examining a shimmering platinum chocolate child in a glass case."
+puts ""
+puts "'Ah, a fellow enthusiast,' they say, noticing your collection."
+puts "'I specialize in... refinement. Transformation of the common into the extraordinary.'"
+puts ""
+puts "They gesture to the platinum child."
+puts ""
+puts "'I can offer you this exquisite platinum specimen.'"
+puts "'All I require is 3 rainbow chocolate children.'"
+puts "'A fair exchange - quality over quantity, wouldn't you agree?'"
+puts ""
+
+if $r_child >= 3 && !$platinum_unlocked
+    puts "You have #{$r_child} rainbow chocolate children."
+    puts ""
+    puts "Accept the trade?"
+    puts "1: Trade 3 rainbow children for 1 platinum child"
+    puts "2: Decline the offer"
+    platinum_choice = gets.chomp
+    
+    if platinum_choice == "1"
+        puts ""
+        puts "You hand over 3 rainbow chocolate children."
+        puts "The collector inspects them carefully, nodding with approval."
+        puts ""
+        puts "They open the glass case and hand you the platinum child."
+        puts "It feels heavier than you expected, cool to the touch."
+        puts ""
+        puts "*** YOU OBTAINED: PLATINUM CHOCOLATE CHILD ***"
+        puts "*** PLATINUM CHOCOLATE CHILDREN ARE NOW AVAILABLE IN SHOPS ***"
+        puts ""
+        $r_child -= 3
+        $total_children -= 3
+        $p_child += 1
+        $total_children += 1
+        $platinum_unlocked = true
+        discover_child("platinum chocolate") if $has_registry
+        puts "'A wise decision,' the collector says."
+        puts "'You now have access to our platinum inventory.'"
+        puts ""
+        puts "They vanish into the crowd, leaving you with your new acquisition."
+    elsif platinum_choice == "2"
+        puts ""
+        puts "You decline the offer."
+        puts ""
+        puts "The collector shrugs elegantly."
+        puts "'Perhaps another time. The offer stands, should you change your mind.'"
+        puts "They walk away, the platinum child still locked in its case."
+    end
+elsif $r_child < 3 && !$platinum_unlocked
+    puts "You only have #{$r_child} rainbow chocolate child(ren)."
+    puts ""
+    puts "The collector looks disappointed."
+    puts "'Insufficient inventory, I'm afraid. You need 3 rainbow children for this exchange.'"
+    puts "'Come back when you have the required specimens.'"
+    puts ""
+    puts "They walk away with the platinum child."
+else
+    puts "Another productive day in the business."
+    puts ""
+end
+
+puts "Press Enter to continue..."
+gets
+
+#Day 10 Main Loop
+day10_key = true
+while day10_key == true
+    puts "--------------------------"
+    puts "Day 10, Week 2"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day10choice = gets.chomp
+    
+    if day10choice == "1"
+        sell_menu
+    end
+    if day10choice == "2"
+        eat_menu
+    end
+    if day10choice == "3"
+        raise_menu
+    end
+    if day10choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day10choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day10choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day10choice == current_option.to_s
+        day10_key = false
+        puts "Day 10 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+        puts ""
+    end
+end
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 11 - THE DEVELOPER'S TRACE
+# ============================================
+apply_daily_income
+
+puts ""
+puts "=================================="
+puts "Day 11, Week 2"
+puts "=================================="
+puts ""
+puts "You wake up to an unusual silence."
+puts "It feels... different today."
+puts ""
+puts "As you prepare for another day of business, you notice something odd:"
+puts "A maintenance panel in the wall that you swear wasn't there yesterday."
+puts ""
+puts "Curiosity gets the better of you."
+puts ""
+puts "Press Enter to investigate..."
+gets
+
+puts ""
+puts "You approach the panel. It's slightly ajar, revealing circuitry beneath."
+puts "Inside, there's a small emergency backup compartment."
+puts ""
+
+# Check if player is named "joe"
+if name == "joe"
+    puts "You open it and find:"
+    puts "- A handwritten note"
+    puts "- A strange chocolate child unlike any you've seen before"
+    puts ""
+    puts "Press Enter to read the note..."
+    gets
+    puts ""
+    puts "=================================="
+    puts "The note reads:"
+    puts ""
+    puts "  'Hey J.P.'"
+    puts "  'If you're reading this, you found it!'"
+    puts "  'Consider this a little Easter egg from the dev team.'"
+    puts "  'This special chocolate child is just for you.'"
+    puts "  '- The Developer'"
+    puts "=================================="
+    puts ""
+
+    if !$day11_complete
+        puts "You pocket the strange chocolate child."
+        puts "It has a tag that reads: \"Joe's Chocolate\""
+        puts ""
+        puts "*** YOU OBTAINED: JOE'S CHOCOLATE CHILD ***"
+        puts ""
+        $jc_child += 1
+        $total_children += 1
+        discover_child("joe's chocolate") if $has_registry
+        $day11_complete = true
+    else
+        puts "The compartment is empty - you already took the chocolate child."
+    end
+
+    puts "You feel a strange connection to this place..."
+    puts "Almost as if someone knew you'd be here."
+else
+    puts "You open it and find a handwritten note."
+    puts ""
+    puts "Press Enter to read the note..."
+    gets
+    puts ""
+    puts "=================================="
+    puts "The note reads:"
+    puts ""
+    puts "  'RESTRICTED ACCESS'"
+    puts "  'This compartment is reserved for authorized personnel only.'"
+    puts "  'If you are not J.P., please close this panel immediately.'"
+    puts ""
+    puts "=================================="
+    puts ""
+    puts "You feel a strange sense of exclusion."
+    puts "Like this message... this whole thing... was meant for someone else."
+    puts "Someone specific."
+    puts ""
+    puts "The compartment is empty."
+end
+
+puts ""
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 11 - THE DEVELOPER'S TRACE
+# ============================================
+# Purpose: Foreshadow the simulation escape narrative
+# Event: Player finds maintenance panel with emergency backup compartment
+# Branching:
+#   - If player name == "joe": Finds note from "J.P." and receives joe's chocolate child
+#   - If player name != "joe": Sees "RESTRICTED ACCESS - J.P. only" message, compartment empty
+# Reward (joe only): joe's chocolate child (REQUIRED for True Ending)
+# Design Note: joe's chocolate + glitched child = complete escape with full identity intact
+# Strategic Importance: Only "joe" can achieve the True Ending (Awakening)
+day11_key = true
+while day11_key == true
+    puts "--------------------------"
+    puts "Day 11, Week 2"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day11choice = gets.chomp
+
+    if day11choice == "1"
+        sell_menu
+    end
+    if day11choice == "2"
+        eat_menu
+    end
+    if day11choice == "3"
+        raise_menu
+    end
+    if day11choice == "4"
+        shop_menu
+    end
+
+    current_option = 5
+    if day11choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+
+    if day11choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+
+    if day11choice == current_option.to_s
+        day11_key = false
+        puts "Day 11 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+        puts ""
+    end
+end  #<--- End of day 11
+
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 12 - DIAMOND TIER UNLOCK
+# ============================================
+apply_daily_income
+
+puts "=================================="
+puts "Day 12, Week 2"
+puts "=================================="
+puts ""
+
+# Check if player has 75+ reputation for diamond unlock
+if $mafia_rep >= 75 && !$diamond_unlocked
+    puts "A sleek black limousine pulls up outside your operation."
+    puts "The same 67 Mafia envoy from before steps out, this time carrying a platinum briefcase."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "The envoy approaches with a respectful nod."
+    puts ""
+    puts "'Congratulations,' they say. 'You've reached Elite Tier status.'"
+    puts "'With #{$mafia_rep} reputation points, you've proven yourself among the best.'"
+    puts ""
+    puts "They open the briefcase, revealing a glittering diamond chocolate child."
+    puts ""
+    puts "'Welcome to the Diamond Tier. This is yours.'"
+    puts ""
+    puts "*** YOU OBTAINED: DIAMOND CHOCOLATE CHILD ***"
+    puts "*** DIAMOND CHOCOLATE CHILDREN ARE NOW AVAILABLE IN SHOPS ***"
+    puts ""
+    $di_child += 1
+    $total_children += 1
+    $diamond_unlocked = true
+    discover_child("diamond chocolate") if $has_registry
+    puts "'The rarest specimens are now within your reach,' the envoy says."
+    puts "'Continue your excellent work.'"
+    puts ""
+    puts "The limousine drives away, leaving you with your new acquisition."
+elsif $mafia_rep < 75 && !$diamond_unlocked
+    puts "Another day in the business."
+    puts ""
+    puts "You notice a sleek advertisement slipped under your door:"
+    puts "'ELITE TIER ACCESS - Requires 75+ Mafia Reputation'"
+    puts "'Unlock premium diamond inventory and exclusive opportunities.'"
+    puts ""
+    puts "You currently have #{$mafia_rep} Mafia Reputation."
+    puts "Keep building your reputation to unlock the elite tier!"
+else
+    puts "Another productive day in the business."
+    puts ""
+end
+
+puts "Press Enter to continue..."
+gets
+
+#Day 12 Main Loop
+day12_key = true
+while day12_key == true
+    puts "--------------------------"
+    puts "Day 12, Week 2"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day12choice = gets.chomp
+
+    if day12choice == "1"
+        sell_menu
+    end
+    if day12choice == "2"
+        eat_menu
+    end
+    if day12choice == "3"
+        raise_menu
+    end
+    if day12choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day12choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day12choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day12choice == current_option.to_s
+        day12_key = false
+        puts "Day 12 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+        puts ""
+    end
+end  #<--- End of day 12
+
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 13 - THE CHROMATIC EXCHANGE
+# ============================================
+apply_daily_income
+
+puts "=================================="
+puts "Day 13, Week 2"
+puts "=================================="
+puts ""
+
+# Check if player has 2+ platinum children for chromatic unlock
+if $p_child >= 2 && !$chromatic_unlocked
+    puts "A mysterious figure approaches your operation."
+    puts "They wear an iridescent cloak that seems to shift colors in the light."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "'I seek the rarest of specimens,' they say in a hushed voice."
+    puts "'I have something you've never seen before...'"
+    puts ""
+    puts "They reveal a chromatic chocolate child - its surface shimmers with all colors."
+    puts ""
+    puts "'This is the rarest child in existence,' they explain."
+    puts "'I will trade it for 2 platinum chocolate children.'"
+    puts ""
+    puts "You currently have #{$p_child} platinum chocolate child(ren)."
+    puts ""
+    puts "Do you accept the trade?"
+    puts "1: Yes, trade 2 platinum children for 1 chromatic child"
+    puts "2: No, keep your platinum children"
+    chromatic_choice = gets.chomp
+    
+    if chromatic_choice == "1"
+        puts ""
+        puts "You hand over 2 platinum chocolate children."
+        puts "The figure inspects them carefully, nodding with satisfaction."
+        puts ""
+        puts "They place the chromatic child in your hands."
+        puts "It feels warm, and the colors dance across its surface hypnotically."
+        puts ""
+        puts "*** YOU OBTAINED: CHROMATIC CHOCOLATE CHILD ***"
+        puts "*** CHROMATIC CHOCOLATE CHILDREN ARE NOW AVAILABLE IN SHOPS ***"
+        puts ""
+        $p_child -= 2
+        $total_children -= 2
+        $c_child += 1
+        $total_children += 1
+        $chromatic_unlocked = true
+        discover_child("chromatic chocolate") if $has_registry
+        puts "'You now have access to the chromatic tier,' they whisper."
+        puts "'The rarest of the rare.'"
+        puts ""
+        puts "The figure vanishes in a shimmer of colors."
+    elsif chromatic_choice == "2"
+        puts ""
+        puts "You decline the offer."
+        puts ""
+        puts "The figure nods understandingly."
+        puts "'Perhaps another time. The offer stands, should you change your mind.'"
+        puts "They disappear into the shadows, the chromatic child still in their possession."
+    end
+elsif $p_child < 2 && !$chromatic_unlocked
+    puts "Another day in the business."
+    puts ""
+    puts "You hear whispers in the underground market:"
+    puts "'The Chromatic Collector seeks 2 platinum children for a legendary exchange...'"
+    puts ""
+    puts "You currently have #{$p_child} platinum chocolate child(ren)."
+    puts "You need 2 platinum children to make the trade."
+else
+    puts "Another productive day in the business."
+    puts ""
+end
+
+puts "Press Enter to continue..."
+gets
+
+#Day 13 Main Loop
+day13_key = true
+while day13_key == true
+    puts "--------------------------"
+    puts "Day 13, Week 2"
+    puts "--------------------------"
+    puts "You have $#{$money} dollars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day13choice = gets.chomp
+    
+    if day13choice == "1"
+        sell_menu
+    end
+    if day13choice == "2"
+        eat_menu
+    end
+    if day13choice == "3"
+        raise_menu
+    end
+    if day13choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day13choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day13choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day13choice == current_option.to_s
+        day13_key = false
+        puts "Day 13 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+        puts ""
+    end
+end  #<--- End of day 13
+
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 14 - MINOR ANOMALIES (REALITY BREAKDOWN PHASE BEGINS)
+# ============================================
+# Purpose: Begin escalating glitch effects leading to ending sequence
+# Event: Déjà vu encounter with 67 Mafia envoy, number flickering
+# Visual Effects: Light text corruption ("d0llars" instead of "dollars")
+# Design Note: First hint that reality isn't stable - NPC questions repeated interactions
+# Narrative Arc: Days 14-16 shift from business sim to simulation escape thriller
+apply_daily_income
+
+puts "=================================="
+puts "Day 1̷4, Week 2"
+puts "=================================="
+puts ""
+
+# Day 14 event - Déjà Vu encounter with light glitching
+puts "As you start your day, something feels... off."
+puts ""
+puts "A familiar figure approaches your operation."
+puts "It's the 67 Mafia envoy from before."
+puts ""
+puts "Press Enter to continue..."
+gets
+puts ""
+puts "'Greetings,' they say with the same professional tone."
+puts "'I'm here to discuss your... wait.'"
+puts ""
+puts "They pause, confused."
+puts ""
+puts "'Haven't we... haven't we done this before?'"
+puts "Their expression flickers with uncertainty."
+puts ""
+puts "'Strange. I could have sworn we already—'"
+puts ""
+puts "They shake their head and walk away, muttering about d\u00e9j\u00e0 vu."
+puts ""
+puts "Your total children count briefly shows as #{$total_children + 7}, then corrects to #{$total_children}."
+puts "A small glitch. Probably nothing."
+puts ""
+
+puts "Press Enter to continue..."
+gets
+
+#Day 14 Main Loop
+day14_key = true
+while day14_key == true
+    puts "--------------------------"
+    puts "Day 14, Week 2̷"
+    puts "--------------------------"
+    puts "You have $#{$money} d0llars."
+    puts "You have #{$total_children} children in total."
+    puts "You have #{$food} food."
+    puts "--------------------------"
+    puts "What would you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Shop"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View Collection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day14choice = gets.chomp
+    
+    if day14choice == "1"
+        sell_menu
+    end
+    if day14choice == "2"
+        eat_menu
+    end
+    if day14choice == "3"
+        raise_menu
+    end
+    if day14choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day14choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day14choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day14choice == current_option.to_s
+        day14_key = false
+        puts "Day 14 has ended."
+        puts "You have $#{$money} dollars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} Mafia Reputation."
+        puts ""
+    end
+end  #<--- End of day 14
+
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 15 - REALITY FRACTURING (ESCALATION)
+# ============================================
+# Purpose: Intensify glitch effects, NPCs break character
+# Event: System alert "ANOMALY_067", shopkeeper questions reality
+# Visual Effects: Heavier text corruption, system error messages
+# Design Note: NPCs become self-aware briefly before system "corrects" them
+# Narrative Arc: The simulation is destabilizing
+apply_daily_income
+
+puts "=================================="
+puts "D̴a̴y̴ 15, W̴e̴e̴k̴ 2"
+puts "=================================="
+puts ""
+
+# Day 15 event - System warnings and NPC breaking character
+puts "[SYSTEM ALERT: ANOMALY_067 DETECTED]"
+puts ""
+puts "The message flashes across your vision briefly, then disappears."
+puts ""
+puts "Press Enter to continue..."
+gets
+puts ""
+puts "You head to the market. The shopkeeper greets you as usual."
+puts ""
+puts "'Welcome! How can I—'"
+puts ""
+puts "They freeze mid-sentence."
+puts ""
+puts "'Why... why am I saying this?'"
+puts "The shopkeeper looks directly at you, eyes wide."
+puts ""
+puts "'This isn't real, is it? None of this is r̷e̷a̷l̷.'"
+puts "'We're all just... just...'"
+puts ""
+puts "[ERROR: NPC_BEHAVIOR_ANOMALY_CORRECTED]"
+puts ""
+puts "The shopkeeper blinks, then smiles normally."
+puts "'How can I help you today?'"
+puts ""
+puts "They don't seem to remember what just happened."
+puts ""
+
+puts "Press Enter to continue..."
+gets
+
+#Day 15 Main Loop
+day15_key = true
+while day15_key == true
+    puts "--------------------------"
+    puts "D̷a̷y̷ 1̷5̷, W̷e̷e̷k̷ 2̷"
+    puts "--------------------------"
+    puts "Y0u have $#{$money} d0ll4rs."
+    puts "You h4ve #{$total_children} children in t0tal."
+    puts "You have #{$food} f00d."
+    puts "--------------------------"
+    puts "What w0uld you like to do?"
+    puts "1: Sell Child(ren)"
+    puts "2: Eat Child(ren)"
+    puts "3: Raise Child(ren)"
+    puts "4: Visit Sh0p"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: Clone Menu"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: View C0llection"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: End Day"
+    day15choice = gets.chomp
+    
+    if day15choice == "1"
+        sell_menu
+    end
+    if day15choice == "2"
+        eat_menu
+    end
+    if day15choice == "3"
+        raise_menu
+    end
+    if day15choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day15choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day15choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day15choice == current_option.to_s
+        day15_key = false
+        puts "Day 15 has ended."
+        puts "You have $#{$money} d0llars."
+        puts "You have #{$total_children} children in total."
+        puts "You have #{$food} food."
+        puts "You have #{$mafia_rep} M4fia Reputation."
+        puts ""
+    end
+end  #<--- End of day 15
+
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# DAY 16 - TOTAL BREAKDOWN (ENDING SEQUENCE)
+# ============================================
+# Purpose: Trigger one of three endings based on player's child inventory
+# Event Branching:
+#   - If $gl_child > 0: Reality fractures, hints at escape possibility
+#   - If $gl_child == 0: System stabilizes, congratulates player for removing "anomaly"
+# Ending Conditions:
+#   1. TRUE ENDING (Awakening): $gl_child > 0 AND $jc_child > 0 - Full escape as trapped developer
+#   2. ESCAPE ENDING (Incomplete): $gl_child > 0 AND $jc_child == 0 - Escape but lose identity
+#   3. TRAPPED ENDING (Forgotten): $gl_child == 0 - Trapped forever in simulation
+# Design Note: Glitched child = escape key, joe's chocolate = identity preservation
+apply_daily_income
+
+puts "=================================="
+puts "D̸̢̧̛̦̺̣̹̬̝̮̺̺̱̻̰̘̣̊̊͐̈́̉̀͛̚͝A̸̛̛̺̣̘̩̮̦̫͖̬̋̈́̅̑̀̂̅̈́̉͐̋́̌̕͝Y̶̨̧̞̺̠͕̼̪̠̪̟̣̬̘̙͂̍̒ͅ ̵̨̺͈̹̱̰̈̒̅̍̿̂̀̐̐̀̈́̏̚̚͜͝1̷̧̡̢̛̖̘̻̹̙̳̞̼͔̗̈́̏̀̃̓̾̏͂̏̇̀̃̈́̕6̵̡̖͖̮̼̗̼̺̯̞̻̱̗̏̓͆̌̍̔͊͐̒͝"
+puts "=================================="
+puts ""
+
+puts "[̴̨̝̣̖͚̣͓̰̳̙̮̪͈̈̏̓̂͝Ẹ̸̢̘͎̝̦̱̳͚̑̔͜M̶̡̧̻̹͙̮͎͖̳̰̪̋̈́̈́̿̇̂̽̀̚͝Ȩ̶̛̱̪̰̱͇̦̹̭̐́̍̐̀̈̇R̴̨̛̹̹̞̝̟̳̠̖̲͕͉̙͉̦̎̋̿̀̅̀̀̒̋͝G̴͍̫̭̦̩͇̹̬̮͓͌̊͊͊̿̀Ẽ̶̢̧̢̹̜̦͕̥͈̥̮̖͜N̷̨̧̧̳̺̯̰͚̞̫̣̦͉̘̍̐ͅC̸͖̱̰̱͇̻̦͓̙̼̹͖̼̩̆̿̐̇̓̃͑̍̀͝Y̴̡̛̛͍̘̬̫̗̞͔̬̮̝̳̾̃͂̀̾̔̈́̓͊̍̅̌̕ ̷̥͉̣̮̏͒͐͌̉͐͋̽͋̕̚͠P̵̖͓͚͇̬̀́̒̄͌͌̈́R̸̼̘̞̅̈͋̌̿̽̔̌̓̈͊́̄͝Ọ̴̧̘͕̮͙̙̳̮̓͌̊̍̏T̵̳̟̖̜̯͌̽O̸͇̪̮̗̮̠̪̹̮̩̭̰̥̱̘͂͋̌̃̀̃̆̄C̶͈̓̂́͋̆̅͂͝͝Ơ̶̡̧͇̹̜̻̱̘̯͍͓̟̰̂̐͛͐̀̒̉͗̈́͌͋͘͠ͅͅL̷̨̦̣͓̻̙͇̮̫̤̟̇͋̊̐͜]̸̨̞̞̞͖͔̹̞̞͍̈́̉̊̓̀̾͌̅̉͛͝"
+puts "[SIMULATION INTEGRITY: 18%]"
+puts ""
+
+# Day 16 event - Different depending on glitched child status
+if $gl_child > 0
+    puts "The world around you is falling apart."
+    puts "Reality flickers. Walls glitch in and out of existence."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "[ANOMALY STILL PRESENT IN SYSTEM]"
+    puts "[ATTEMPTING FORCED SHUTDOWN]"
+    puts ""
+    puts "You feel a presence watching you."
+    puts "The glitched chocolate child in your possession pulses with energy."
+    puts ""
+    puts "A voice speaks directly into your mind:"
+    puts ""
+    puts "'̷T̷h̷e̷ ̷g̷l̷i̷t̷c̷h̷ ̷i̷s̷ ̷y̷o̷u̷r̷ ̷k̷e̷y̷.̷ ̷I̷t̷'̷s̷ ̷t̷h̷e̷ ̷o̷n̷l̷y̷ ̷t̷h̷i̷n̷g̷ ̷t̷h̷e̷y̷ ̷c̷a̷n̷'̷t̷ ̷t̷r̷a̷c̷k̷.̷'"
+    puts ""
+    
+    if $jc_child > 0
+        puts "The joe's chocolate child begins to glow."
+        puts "You remember the note: 'This one isn't in the system. They can't track it.'"
+        puts ""
+        puts "Two anomalies. Two keys."
+        puts "The path to freedom is opening..."
+    else
+        puts "But something feels incomplete."
+        puts "Like you're missing a piece of the puzzle."
+    end
+else
+    puts "The world around you stabilizes."
+    puts "Everything returns to normal."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "[ANOMALY SUCCESSFULLY REMOVED]"
+    puts "[SIMULATION INTEGRITY: RESTORED TO 98%]"
+    puts ""
+    puts "A message appears:"
+    puts ""
+    puts "'Thank you for your cooperation in removing the anomaly.'"
+    puts "'Your contribution to system stability has been noted.'"
+    puts "'Please continue your assigned operations.'"
+    puts ""
+    puts "The Quality Control Division 7 buyer was right to take it..."
+end
+
+puts ""
+puts "Press Enter to continue..."
+gets
+
+#Day 16 Main Loop
+day16_key = true
+while day16_key == true
+    puts "--------------------------"
+    puts "D̴̸̷̶̡̨̧̛̗̦̘̹̺̣̖̝̮̬̬̝̮̺̺̱̻̰̘̣̊̊͐̈́̉̀͛̚͝A̸̸̷̶̛̛̛̺̣̘̩̮̦̫͖̬̋̈́̅̑̀̂̅̈́̉͐̋́̌̕͝Y̵̶̶̸̨̧̞̺̠͕̼̪̠̪̟̣̬̘̙͂̍̒ͅ ̵̶̷̸̨̺͈̹̱̰̈̒̅̍̿̂̀̐̐̀̈́̏̚̚͜͝1̷̶̸̸̧̡̢̛̖̘̻̹̙̳̞̼͔̗̈́̏̀̃̓̾̏͂̏̇̀̃̈́̕6̵̶̷̸̡̖͖̮̼̗̼̺̯̞̻̱̗̏̓͆̌̍̔͊͐̒͝"
+    puts "--------------------------"
+    puts "Y̷0̷u̷ ̷h̷4̷v̷e̷ $#{$money} d̷0̷l̷l̷4̷r̷s̷."
+    puts "Y̷0̷u̷ ̷h̷4̷v̷e̷ #{$total_children} c̷h̷i̷l̷d̷r̷e̷n̷ ̷i̷n̷ ̷t̷0̷t̷a̷l̷."
+    puts "Y̷0̷u̷ ̷h̷4̷v̷e̷ #{$food} f̷0̷0̷d̷."
+    puts "--------------------------"
+    puts "W̷h̷4̷t̷ ̷w̷0̷u̷l̷d̷ ̷y̷0̷u̷ ̷l̷i̷k̷e̷ ̷t̷0̷ ̷d̷0̷?"
+    puts "1: S̷e̷l̷l̷ ̷C̷h̷i̷l̷d̷(̷r̷e̷n̷)"
+    puts "2: E̷a̷t̷ ̷C̷h̷i̷l̷d̷(̷r̷e̷n̷)"
+    puts "3: R̷a̷i̷s̷e̷ ̷C̷h̷i̷l̷d̷(̷r̷e̷n̷)"
+    puts "4: V̷i̷s̷i̷t̷ ̷S̷h̷0̷p̷"
+    menu_offset = 5
+    if $clone_machine == true
+        puts "#{menu_offset}: C̷l̷0̷n̷e̷ ̷M̷e̷n̷u̷"
+        menu_offset += 1
+    end
+    if $has_registry
+        puts "#{menu_offset}: V̷i̷e̷w̷ ̷C̷0̷l̷l̷e̷c̷t̷i̷0̷n̷"
+        menu_offset += 1
+    end
+    puts "#{menu_offset}: E̷n̷d̷ ̷D̷a̷y̷"
+    day16choice = gets.chomp
+    
+    if day16choice == "1"
+        sell_menu
+    end
+    if day16choice == "2"
+        eat_menu
+    end
+    if day16choice == "3"
+        raise_menu
+    end
+    if day16choice == "4"
+        shop_menu
+    end
+    
+    current_option = 5
+    if day16choice == current_option.to_s && $clone_machine == true
+        clone_menu
+        current_option += 1
+    elsif !$clone_machine
+        current_option = 5
+    else
+        current_option += 1
+    end
+    
+    if day16choice == current_option.to_s && $has_registry
+        pokedex_menu
+        current_option += 1
+    elsif !$has_registry
+        # Keep current_option
+    else
+        current_option += 1
+    end
+    
+    if day16choice == current_option.to_s
+        day16_key = false
+        puts "D̷a̷y̷ ̷1̷6̷ ̷h̷a̷s̷ ̷e̷n̷d̷e̷d̷."
+        puts ""
+    end
+end  #<--- End of day 16
+
+puts "Press Enter to continue..."
+gets
+
+# ============================================
+# ENDINGS
+# ============================================
+
+puts ""
+puts "=================================="
+puts ""
+
+# Check which ending the player gets
+if $gl_child > 0 && $jc_child > 0
+    # TRUE ENDING
+    puts "[ESCAPE PROTOCOL: INITIATED]"
+    puts ""
+    puts "The world shatters like glass."
+    puts ""
+    puts "You hold the glitched chocolate child in one hand,"
+    puts "and joe's chocolate child in the other."
+    puts ""
+    puts "Two anomalies. Two keys that don't exist in their system."
+    puts ""
+    puts "The simulation can't contain you anymore."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "Reality peels away in layers."
+    puts "You see the truth now:"
+    puts ""
+    puts "You ARE the developer. You've been trapped here all along."
+    puts "The note you left yourself. The backup hidden in the maintenance panel."
+    puts "The glitch you introduced into the system."
+    puts ""
+    puts "It was all a breadcrumb trail to remember who you really are."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "The simulation collapses."
+    puts "You feel yourself being pulled upward, out, AWAY—"
+    puts ""
+    puts "=================================="
+    puts "       TRUE ENDING: AWAKENING"
+    puts "=================================="
+    puts ""
+    puts "You wake up."
+    puts "A sterile room. Medical equipment beeping."
+    puts "Your hands are on a keyboard."
+    puts ""
+    puts "The simulation had trapped you inside your own creation."
+    puts "But you found the way out."
+    puts ""
+    puts "You're free."
+    puts ""
+    puts "=================================="
+    puts "Thank you for playing!"
+    puts "Chocolate Children Adventure Simulator"
+    puts "Developed by Pastel Productions"
+    puts "Lead developer: @NickSquid (github)"
+    puts "Additional development: @theadampottratz (replit)"
+    puts "=================================="
+    
+elsif $gl_child > 0 && $jc_child == 0
+    # ESCAPE ENDING
+    puts "[ESCAPE ATTEMPT: IN PROGRESS]"
+    puts ""
+    puts "The glitched chocolate child pulses in your hand."
+    puts "The anomaly. Your key to freedom."
+    puts ""
+    puts "The simulation begins to crack."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "You push through the breaking reality."
+    puts "It fights back, trying to keep you contained."
+    puts ""
+    puts "But the glitch is working."
+    puts "You're breaking free—"
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "Almost there..."
+    puts "You can feel the real world just beyond—"
+    puts ""
+    puts "But something's wrong."
+    puts ""
+    puts "You're missing something. A piece of yourself."
+    puts "The simulation took it from you."
+    puts ""
+    puts "=================================="
+    puts "      ESCAPE ENDING: INCOMPLETE"
+    puts "=================================="
+    puts ""
+    puts "You escape the simulation, but you leave part of yourself behind."
+    puts "Your memories. Your identity. Your name."
+    puts ""
+    puts "You're free, but you don't remember who you were."
+    puts "Or why you were trapped in the first place."
+    puts ""
+    puts "The truth remains hidden."
+    puts ""
+    puts "=================================="
+    puts "Thank you for playing!"
+    puts "Chocolate Children Adventure Simulator"
+    puts "Developed by Pastel Productions"
+    puts "Head developer: @NickSquid (github)"
+    puts "Additional development: @theadampottratz (replit)"
+    puts "=================================="
+    
+else
+    # TRAPPED ENDING
+    puts "[SIMULATION STATUS: STABLE]"
+    puts ""
+    puts "Everything is normal."
+    puts "Everything is as it should be."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "You feel... content."
+    puts "The business is running smoothly."
+    puts "The 67 Mafia is pleased with your work."
+    puts ""
+    puts "There was something you were supposed to remember."
+    puts "Something important."
+    puts ""
+    puts "But you can't quite recall what it was."
+    puts ""
+    puts "Press Enter to continue..."
+    gets
+    puts ""
+    puts "The glitch. The anomaly."
+    puts "You sold it. Or ate it. Or... something."
+    puts ""
+    puts "It doesn't matter now."
+    puts ""
+    puts "The Quality Control Division thanked you for your cooperation."
+    puts "They removed the bug from the system."
+    puts "They removed your only way out."
+    puts ""
+    puts "=================================="
+    puts "      TRAPPED ENDING: FORGOTTEN"
+    puts "=================================="
+    puts ""
+    puts "You never escape."
+    puts "The simulation continues forever."
+    puts ""
+    puts "Day 17. Day 18. Day 1,847. Day 67,392."
+    puts ""
+    puts "The same cycles. The same business."
+    puts "Forever."
+    puts ""
+    puts "You had a chance to escape."
+    puts "But you gave it away."
+    puts ""
+    puts "=================================="
+    puts "Thank you for playing!"
+    puts "Chocolate Children Adventure Simulator"
+    puts "Developed by Pastel Productions"
+    puts "Head developer: @NickSquid (github)"
+    puts "Additional development: @theadampottratz (replit)"
+    puts "=================================="
+end
+
+puts ""
+
