@@ -1,0 +1,1121 @@
+#!/usr/bin/env python3
+"""
+PRONGLES HEIST: A Satirical ASCII Adventure
+The most ridiculous crime simulator ever made.
+Steal cylindrical potato snacks. Become legend.
+"""
+
+import random
+import time
+import os
+import sys
+
+# Game state
+class GameState:
+    def __init__(self):
+        self.cash = 0.0
+        self.prongles_inventory = {}  # flavor: count
+        self.suspicion = 0  # 0-100
+        self.reputation = 0  # black market reputation
+        self.day = 1
+        self.game_over = False
+        self.arrested = False
+        self.items_inventory = {}  # item_id: count (purchased items from shop)
+
+# =============================================================================
+# ADD NEW PRONGLES FLAVORS HERE
+# =============================================================================
+# Format: "Flavor Name": {"rarity": X, "base_price": X.XX, "black_market_multiplier": X.X}
+# - rarity: 1 = common, 5 = rare, 10 = legendary (higher = harder to find)
+# - base_price: store price in dollars
+# - black_market_multiplier: how much more it sells for on black market
+# =============================================================================
+FLAVORS = {
+    "Original": {"rarity": 1, "base_price": 2.50, "black_market_multiplier": 1.5},
+    "Sour Cream & Onion": {"rarity": 1, "base_price": 2.50, "black_market_multiplier": 1.6},
+    "BBQ": {"rarity": 2, "base_price": 2.75, "black_market_multiplier": 1.8},
+    "Cheddar Cheese": {"rarity": 2, "base_price": 2.75, "black_market_multiplier": 1.7},
+    "Pizza": {"rarity": 3, "base_price": 3.00, "black_market_multiplier": 2.0},
+    "Ranch": {"rarity": 3, "base_price": 3.00, "black_market_multiplier": 1.9},
+    "Salt & Vinegar": {"rarity": 4, "base_price": 3.25, "black_market_multiplier": 2.2},
+    "Loaded Baked Potato": {"rarity": 5, "base_price": 3.50, "black_market_multiplier": 2.5},
+    "ULTRA RARE GOLD EDITION": {"rarity": 10, "base_price": 50.00, "black_market_multiplier": 5.0},
+    # ADD NEW FLAVORS BELOW THIS LINE:
+    
+}
+
+# =============================================================================
+# ADD NEW SHOP ITEMS HERE
+# =============================================================================
+# Each item has:
+# - name: Display name
+# - price: Cost in dollars
+# - description: What it does
+# - effect: Type of effect (suspicion_reduction, success_boost, haggle_boost, multi_grab)
+# - power: How strong the effect is
+# - uses: How many times it can be used (-1 = unlimited/passive)
+# =============================================================================
+SHOP_ITEMS = {
+    "fake_mustache": {
+        "name": "Fake Mustache",
+        "price": 15.00,
+        "description": "A disguise that reduces suspicion gain by 20%",
+        "effect": "suspicion_reduction",
+        "power": 0.2,
+        "uses": -1,
+    },
+    "squeaky_shoes": {
+        "name": "Anti-Squeak Shoes",
+        "price": 25.00,
+        "description": "Silent shoes that boost steal success by 10%",
+        "effect": "success_boost",
+        "power": 0.1,
+        "uses": -1,
+    },
+    "charm_bracelet": {
+        "name": "Lucky Charm Bracelet",
+        "price": 20.00,
+        "description": "Improves haggling success by 15%",
+        "effect": "haggle_boost",
+        "power": 0.15,
+        "uses": -1,
+    },
+    "big_coat": {
+        "name": "Oversized Trench Coat",
+        "price": 50.00,
+        "description": "Steal 2 cans at once! (Single use per heist)",
+        "effect": "multi_grab",
+        "power": 2,
+        "uses": 3,
+    },
+    "energy_drink": {
+        "name": "HYPER CAFFEINE BLAST",
+        "price": 8.00,
+        "description": "One-time 30% success boost for next steal",
+        "effect": "one_time_boost",
+        "power": 0.3,
+        "uses": 1,
+    },
+    "bribe_money": {
+        "name": "Guard Bribe Envelope",
+        "price": 35.00,
+        "description": "Instantly reduce suspicion by 25% (one use)",
+        "effect": "instant_suspicion_drop",
+        "power": 25,
+        "uses": 1,
+    },
+    "insider_info": {
+        "name": "Store Schedule Intel",
+        "price": 40.00,
+        "description": "Know when rare Prongles appear (better spawns)",
+        "effect": "rare_boost",
+        "power": 0.3,
+        "uses": -1,
+    },
+    # ADD NEW SHOP ITEMS BELOW THIS LINE:
+    
+}
+
+# =============================================================================
+# ADD NEW NPC BUYERS HERE
+# =============================================================================
+# Each NPC needs:
+# - name: Display name
+# - ascii: ASCII art (use r''' for raw strings to avoid escape issues)
+# - personality: Just for reference
+# - greeting: What they say when you approach
+# - haggle_response: What they say if haggling fails
+# - buy_response: What they say after buying
+# - price_modifier: 0.7 = pays 70%, 1.3 = pays 130% of base price
+# - preferred_flavors: List of flavors they pay EXTRA for (1.5x bonus)
+# =============================================================================
+NPCS = [
+    {
+        "name": "Suspicious Steve",
+        "ascii": r'''
+      .---.
+     / o o \
+     \  ^  /
+      \___/
+    *paranoid*
+        ''',
+        "personality": "paranoid",
+        "greeting": "*looks around nervously* You got the... stuff?",
+        "haggle_response": "You're wearing a wire, aren't you?!",
+        "buy_response": "*snatches can* The snack revolution begins...",
+        "price_modifier": 0.8,
+        "preferred_flavors": ["Original", "BBQ"],
+    },
+    {
+        "name": "Fancy Francois",
+        "ascii": r'''
+      ,---.
+     /     \
+     | o o |
+     |  ^  |
+     | '-' |
+     '-----'
+        ''',
+        "personality": "snob",
+        "greeting": "Ah, a purveyor of cylindrical delicacies, I presume?",
+        "haggle_response": "How pedestrian. I don't negotiate with... commoners.",
+        "buy_response": "Exquisite. The crunch shall be... *chef's kiss*",
+        "price_modifier": 1.3,
+        "preferred_flavors": ["Loaded Baked Potato", "ULTRA RARE GOLD EDITION"],
+    },
+    {
+        "name": "Bulk Buyer Betty",
+        "ascii": r'''
+       .--.
+      /    \
+     | o  o |
+     |  <>  |
+     '------'
+    [CART FULL]
+        ''',
+        "personality": "bulk",
+        "greeting": "I need VOLUME. My bunker won't stock itself!",
+        "haggle_response": "Bulk discount or no deal!",
+        "buy_response": "EXCELLENT. The apocalypse snack reserves grow!",
+        "price_modifier": 0.7,
+        "preferred_flavors": ["Original", "Sour Cream & Onion"],
+    },
+    {
+        "name": "Crypto Chad",
+        "ascii": r'''
+      .---.
+     |TO DA|
+     |MOON!|
+     '-----'
+      / | \
+        ''',
+        "personality": "crypto",
+        "greeting": "Bro, can I pay in DogeCoin? What about NFTs of Prongles?",
+        "haggle_response": "This is FUD. You're spreading Prongle FUD!",
+        "buy_response": "WAGMI! These chips are going to the moon!",
+        "price_modifier": 1.1,
+        "preferred_flavors": ["ULTRA RARE GOLD EDITION", "Pizza"],
+    },
+    {
+        "name": "Grandma Gertrude",
+        "ascii": r'''
+      _____
+     /     \
+    | ^   ^ |
+    |   <   |
+    | \___/ |
+    '-------'
+        ''',
+        "personality": "grandma",
+        "greeting": "Oh dearie, are these for my cats? They love the crunch!",
+        "haggle_response": "In my day, Prongles were a nickel! A NICKEL!",
+        "buy_response": "Bless your heart. Mr. Whiskers will be SO happy!",
+        "price_modifier": 0.9,
+        "preferred_flavors": ["Sour Cream & Onion", "Ranch"],
+    },
+    {
+        "name": "The Collector",
+        "ascii": r'''
+      .===.
+     /|   |\
+    | | @ | |
+     \|   |/
+      '==='
+   *obsessed*
+        ''',
+        "personality": "collector",
+        "greeting": "Do you have... THE ONE? The legendary Gold Edition?",
+        "haggle_response": "You don't understand! My collection NEEDS this!",
+        "buy_response": "*tears of joy* Finally... after all these years...",
+        "price_modifier": 2.0,
+        "preferred_flavors": ["ULTRA RARE GOLD EDITION", "Loaded Baked Potato"],
+    },
+    # ADD NEW NPCs BELOW THIS LINE (copy the template above):
+    
+]
+
+def clear_screen():
+    os.system('clear' if os.name == 'posix' else 'cls')
+
+def print_slow(text, delay=0.02):
+    for char in text:
+        print(char, end='', flush=True)
+        time.sleep(delay)
+    print()
+
+def print_title():
+    title = """
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                                                                               ║
+║   ██████╗ ██████╗  ██████╗ ███╗   ██╗ ██████╗ ██╗     ███████╗███████╗       ║
+║   ██╔══██╗██╔══██╗██╔═══██╗████╗  ██║██╔════╝ ██║     ██╔════╝██╔════╝       ║
+║   ██████╔╝██████╔╝██║   ██║██╔██╗ ██║██║  ███╗██║     █████╗  ███████╗       ║
+║   ██╔═══╝ ██╔══██╗██║   ██║██║╚██╗██║██║   ██║██║     ██╔══╝  ╚════██║       ║
+║   ██║     ██║  ██║╚██████╔╝██║ ╚████║╚██████╔╝███████╗███████╗███████║       ║
+║   ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝╚══════╝       ║
+║                                                                               ║
+║                    ██╗  ██╗███████╗██╗███████╗████████╗                       ║
+║                    ██║  ██║██╔════╝██║██╔════╝╚══██╔══╝                       ║
+║                    ███████║█████╗  ██║███████╗   ██║                          ║
+║                    ██╔══██║██╔══╝  ██║╚════██║   ██║                          ║
+║                    ██║  ██║███████╗██║███████║   ██║                          ║
+║                    ╚═╝  ╚═╝╚══════╝╚═╝╚══════╝   ╚═╝                          ║
+║                                                                               ║
+║                    A Totally Satirical Crime Simulator                        ║
+║                         "Once you pop, you can't stop"                        ║
+║                              (stealing, apparently)                           ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+"""
+    print(title)
+
+def print_store():
+    snack_names = list(FLAVORS.keys())
+    security_status = {}
+    security_icons = []
+    
+    for i, flavor in enumerate(snack_names):
+        roll = random.random()
+        if roll < 0.3:
+            security_icons.append("[CAM]")
+            security_status[flavor] = "camera"
+        elif roll < 0.5:
+            security_icons.append("[GRD]")
+            security_status[flavor] = "guard"
+        else:
+            security_icons.append("     ")
+            security_status[flavor] = "clear"
+    
+    slots = [f"{icon} " for icon in security_icons]
+    icon_row = "║     " + "  ".join(slots) + "           ║"
+    
+    gold_sec = security_icons[8] if len(security_icons) > 8 else "     "
+    
+    print("╔═══════════════════════════════════════════════════════════════════════════════╗")
+    print("║                         🏪 MEGA MART - SNACK AISLE 🏪                         ║")
+    print("╠═══════════════════════════════════════════════════════════════════════════════╣")
+    print("║                                                                               ║")
+    print(icon_row)
+    print("║     ╔════╗  ╔════╗  ╔════╗  ╔════╗  ╔════╗  ╔════╗  ╔════╗  ╔════╗           ║")
+    print("║     ║ORIG║  ║S&O ║  ║BBQ ║  ║CHED║  ║PIZA║  ║RNCH║  ║S&V ║  ║LOAD║           ║")
+    print("║     ║████║  ║████║  ║████║  ║████║  ║████║  ║████║  ║████║  ║████║           ║")
+    print("║     ║████║  ║████║  ║████║  ║████║  ║████║  ║████║  ║████║  ║████║           ║")
+    print("║     ╚════╝  ╚════╝  ╚════╝  ╚════╝  ╚════╝  ╚════╝  ╚════╝  ╚════╝           ║")
+    print("║                                                                               ║")
+    print(f"║                    {gold_sec}                                                   ║")
+    print("║                   ╔══════╗   << ULTRA RARE! >>                                ║")
+    print("║                   ║ GOLD ║   The legendary Gold Edition                       ║")
+    print("║                   ║ ✦✦✦✦ ║   (Behind locked glass case)                       ║")
+    print("║                   ╚══════╝                                                    ║")
+    print("║                                                                               ║")
+    print("║    [CAM] = Camera (-15% success)  [GRD] = Guard (+10 suspicion)              ║")
+    print("║                                                                               ║")
+    print("╚═══════════════════════════════════════════════════════════════════════════════╝")
+    
+    return security_status
+
+def print_suspicion_meter(suspicion):
+    meter_width = 40
+    filled = int((suspicion / 100) * meter_width)
+    empty = meter_width - filled
+    
+    if suspicion < 30:
+        color_indicator = "🟢"
+        status = "Cool as a cucumber"
+    elif suspicion < 60:
+        color_indicator = "🟡"
+        status = "Getting sweaty..."
+    elif suspicion < 80:
+        color_indicator = "🟠"
+        status = "They're watching you!"
+    else:
+        color_indicator = "🔴"
+        status = "RUN! THEY KNOW!"
+    
+    print(f"""
+╔═══════════════════ SUSPICION METER ═══════════════════╗
+║ {color_indicator} [{('█' * filled) + ('░' * empty)}] {suspicion:3d}%  ║
+║    Status: {status:<40} ║
+╚═══════════════════════════════════════════════════════╝
+""")
+
+def print_inventory(state):
+    print("\n╔═══════════════════ YOUR STASH ═══════════════════╗")
+    print(f"║  💰 Cash: ${state.cash:.2f}                         ")
+    print(f"║  ⭐ Street Rep: {state.reputation}                    ")
+    print(f"║  📅 Day: {state.day}                                  ")
+    print("╠═══════════════════════════════════════════════════╣")
+    if state.prongles_inventory:
+        for flavor, count in state.prongles_inventory.items():
+            print(f"║  🥫 {flavor}: {count} can(s)")
+    else:
+        print("║  (Your pockets are tragically empty)              ")
+    if state.items_inventory:
+        print("╠═══════════════════════════════════════════════════╣")
+        print("║  🎒 EQUIPMENT:")
+        for item_id, count in state.items_inventory.items():
+            item = SHOP_ITEMS[item_id]
+            if item['uses'] == -1:
+                print(f"║     🔧 {item['name']} (passive)")
+            else:
+                print(f"║     📦 {item['name']} x{count}")
+    print("╚═══════════════════════════════════════════════════╝")
+
+def print_black_market():
+    market = """
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                     🌙 THE BACK ALLEY - BLACK MARKET 🌙                       ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     ║
+║      ░  ___________                                   ___________      ░     ║
+║      ░ |  TOTALLY  |     💡                          |   LEGIT   |     ░     ║
+║      ░ |   LEGIT   |      *flicker*                  |  PRONGLES |     ░     ║
+║      ░ |  SNACKS   |                                 |  EXCHANGE |     ░     ║
+║      ░ |___________|                                 |___________|     ░     ║
+║      ░                    👤  👤  👤                                   ░     ║
+║      ░               (suspicious figures lurk)                         ░     ║
+║      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+"""
+    print(market)
+
+def steal_prongles(state):
+    clear_screen()
+    security_status = print_store()
+    print_suspicion_meter(state.suspicion)
+    print_inventory(state)
+    
+    print("\n🥫 AVAILABLE PRONGLES TO... 'ACQUIRE':")
+    print("=" * 50)
+    
+    available = []
+    rare_boost = get_item_power(state, 'rare_boost') if has_item_effect(state, 'rare_boost') else 0
+    if rare_boost > 0:
+        print("  📋 Store Schedule Intel active! Better stock today!")
+    
+    for i, (flavor, data) in enumerate(FLAVORS.items(), 1):
+        spawn_chance = 1 / data["rarity"]
+        if rare_boost > 0:
+            spawn_chance += rare_boost
+        if random.random() < spawn_chance:
+            available.append(flavor)
+            rarity_stars = "⭐" * min(data["rarity"], 5)
+            sec = security_status.get(flavor, "clear")
+            sec_indicator = " [CAM]" if sec == "camera" else " [GRD]" if sec == "guard" else ""
+            print(f"  {i}. {flavor} {rarity_stars}{sec_indicator}")
+    
+    if not available:
+        print("  (The shelves are empty! Bad luck!)")
+        input("\nPress Enter to continue...")
+        return
+    
+    print("\n  0. Leave (coward's choice)")
+    
+    try:
+        choice = input("\n🤫 Which one do you dare to pocket? > ")
+        if choice == "0":
+            return
+        
+        choice_idx = int(choice) - 1
+        if 0 <= choice_idx < len(list(FLAVORS.keys())):
+            flavor = list(FLAVORS.keys())[choice_idx]
+            if flavor in available:
+                attempt_steal(state, flavor, security_status.get(flavor, "clear"))
+            else:
+                print("That one's not on the shelf right now!")
+                time.sleep(1)
+    except (ValueError, IndexError):
+        print("Invalid choice!")
+        time.sleep(1)
+
+def attempt_steal(state, flavor, security="clear"):
+    print("\n" + "=" * 50)
+    print("🎬 HEIST IN PROGRESS...")
+    print("=" * 50)
+    
+    # =========================================================================
+    # ADD NEW STEALING TECHNIQUES HERE
+    # =========================================================================
+    # Format: ("Name", "Description", risk_percent, success_rate)
+    # - risk_percent: How much suspicion increases on success (5-50)
+    # - success_rate: 0.0 to 1.0 (0.7 = 70% success chance)
+    # =========================================================================
+    techniques = [
+        ("The Jacket Stuff", "You casually stuff it in your jacket", 15, 0.7),
+        ("The Decoy Drop", "You pretend to tie your shoe while pocketing", 25, 0.8),
+        ("The Speed Grab", "Lightning fast hands!", 35, 0.9),
+        ("The 'Oops' Maneuver", "It 'accidentally' fell in your bag", 20, 0.75),
+        ("The Bold Walk", "Act like you own the place", 30, 0.85),
+        # ADD NEW TECHNIQUES BELOW THIS LINE:
+        
+    ]
+    
+    print("\nChoose your technique:")
+    for i, (name, desc, risk, success) in enumerate(techniques, 1):
+        print(f"  {i}. {name} (Risk: {risk}%, Success: {int(success*100)}%)")
+    
+    try:
+        tech_choice = int(input("\n> ")) - 1
+        if 0 <= tech_choice < len(techniques):
+            name, desc, risk, success_rate = techniques[tech_choice]
+            execute_steal(state, flavor, name, desc, risk, success_rate, security)
+        else:
+            print("Panic! You just stood there looking suspicious!")
+            state.suspicion += 15
+    except ValueError:
+        print("You froze! The guard is looking at you!")
+        state.suspicion += 10
+
+def execute_steal(state, flavor, technique_name, description, risk, success_rate, security="clear"):
+    print(f"\n🎭 Executing: {technique_name}")
+    print(f"   {description}...")
+    
+    extra_suspicion = 0
+    
+    if security == "camera":
+        success_rate -= 0.15
+        print(f"   📹 Camera watching! (-15% success)")
+    elif security == "guard":
+        extra_suspicion = 10
+        print(f"   💂 Guard nearby! (+10 suspicion if caught)")
+    
+    # Apply item effects
+    if has_item_effect(state, 'success_boost'):
+        boost = get_item_power(state, 'success_boost')
+        success_rate += boost
+        print(f"   🔧 Anti-Squeak Shoes active! (+{int(boost*100)}% success)")
+    
+    one_time_boost = use_consumable(state, 'one_time_boost')
+    if one_time_boost > 0:
+        success_rate += one_time_boost
+        print(f"   ⚡ HYPER CAFFEINE BLAST consumed! (+{int(one_time_boost*100)}% success)")
+    
+    for i in range(3):
+        time.sleep(0.5)
+        print("   .", end="", flush=True)
+    print()
+    
+    # =========================================================================
+    # ADD NEW RANDOM EVENTS HERE
+    # =========================================================================
+    # Format: ("Event description", suspicion_change)
+    # - Positive number = BAD (increases suspicion)
+    # - Negative number = GOOD (decreases suspicion, helps you)
+    # =========================================================================
+    events = [
+        ("A baby points at you and screams!", 20),
+        ("The security guard sneezes - distracted!", -10),
+        ("You step on a squeaky tile!", 15),
+        ("Someone drops a jar - all eyes there!", -15),
+        ("The lights flicker mysteriously!", 5),
+        ("A dog outside barks at you through the window!", 10),
+        # ADD NEW EVENTS BELOW THIS LINE:
+        
+    ]
+    
+    if random.random() < 0.4:
+        event, suspicion_change = random.choice(events)
+        print(f"\n   ⚡ EVENT: {event}")
+        
+        # Apply suspicion reduction from items
+        if suspicion_change > 0 and has_item_effect(state, 'suspicion_reduction'):
+            reduction = get_item_power(state, 'suspicion_reduction')
+            suspicion_change = int(suspicion_change * (1 - reduction))
+            print(f"   🥸 Fake Mustache helps! (suspicion reduced)")
+        
+        state.suspicion += suspicion_change
+        if suspicion_change > 0:
+            success_rate -= 0.1
+        else:
+            success_rate += 0.1
+    
+    cans_to_steal = 1
+    if has_item_effect(state, 'multi_grab'):
+        cans_to_steal = 2
+        use_consumable(state, 'multi_grab')
+        print(f"   🧥 Trench Coat deployed! Grabbing {cans_to_steal} cans!")
+    
+    if random.random() < success_rate:
+        print(f"\n   ✅ SUCCESS! You acquired: {flavor}!")
+        state.prongles_inventory[flavor] = state.prongles_inventory.get(flavor, 0) + cans_to_steal
+        if cans_to_steal > 1:
+            print(f"      (Got {cans_to_steal} cans!)")
+        
+        suspicion_gain = random.randint(5, risk)
+        if has_item_effect(state, 'suspicion_reduction'):
+            reduction = get_item_power(state, 'suspicion_reduction')
+            suspicion_gain = int(suspicion_gain * (1 - reduction))
+        state.suspicion += suspicion_gain
+    else:
+        print(f"\n   ❌ FAILED! The can slipped! Everyone looks at you!")
+        suspicion_gain = risk + 15 + extra_suspicion
+        if extra_suspicion > 0:
+            print(f"      💂 Guard spots you! (+{extra_suspicion} extra suspicion)")
+        if has_item_effect(state, 'suspicion_reduction'):
+            reduction = get_item_power(state, 'suspicion_reduction')
+            suspicion_gain = int(suspicion_gain * (1 - reduction))
+        state.suspicion += suspicion_gain
+    
+    # Check if caught
+    if state.suspicion >= 100:
+        print("\n🚨 BUSTED! Security tackle you into a display of chips! 🚨")
+        state.arrested = True
+        state.game_over = True
+    
+    state.suspicion = min(100, max(0, state.suspicion))
+    time.sleep(1.5)
+
+def sell_prongles(state):
+    if not state.prongles_inventory:
+        clear_screen()
+        print("\n❌ You have nothing to sell! Go steal some Prongles first!")
+        input("\nPress Enter to continue...")
+        return
+    
+    clear_screen()
+    print_black_market()
+    print_inventory(state)
+    
+    # Select random NPCs for today
+    today_npcs = random.sample(NPCS, min(3, len(NPCS)))
+    
+    print("\n👥 TODAY'S BUYERS:")
+    print("=" * 50)
+    
+    for i, npc in enumerate(today_npcs, 1):
+        print(f"\n  {i}. {npc['name']}")
+        print(npc['ascii'])
+        print(f"     \"{npc['greeting']}\"")
+    
+    print("\n  0. Leave the alley")
+    
+    try:
+        choice = input("\n🤝 Who do you want to deal with? > ")
+        if choice == "0":
+            return
+        
+        npc_idx = int(choice) - 1
+        if 0 <= npc_idx < len(today_npcs):
+            negotiate_sale(state, today_npcs[npc_idx])
+    except (ValueError, IndexError):
+        print("They all scatter into the shadows!")
+        time.sleep(1)
+
+def negotiate_sale(state, npc):
+    clear_screen()
+    print(f"\n{'=' * 50}")
+    print(f"DEALING WITH: {npc['name']}")
+    print(f"{'=' * 50}")
+    print(npc['ascii'])
+    print(f"\n\"{npc['greeting']}\"")
+    
+    print("\n🥫 Your inventory:")
+    flavors_list = list(state.prongles_inventory.keys())
+    for i, flavor in enumerate(flavors_list, 1):
+        count = state.prongles_inventory[flavor]
+        base = FLAVORS[flavor]["base_price"]
+        mult = FLAVORS[flavor]["black_market_multiplier"]
+        price = base * mult * npc["price_modifier"]
+        
+        # Bonus for preferred flavors
+        if flavor in npc["preferred_flavors"]:
+            price *= 1.5
+            print(f"  {i}. {flavor} x{count} - ${price:.2f} each ⭐ THEY WANT THIS!")
+        else:
+            print(f"  {i}. {flavor} x{count} - ${price:.2f} each")
+    
+    print("\n  0. Never mind")
+    
+    try:
+        choice = input("\nWhat are you selling? > ")
+        if choice == "0":
+            return
+        
+        flavor_idx = int(choice) - 1
+        if 0 <= flavor_idx < len(flavors_list):
+            flavor = flavors_list[flavor_idx]
+            count = state.prongles_inventory[flavor]
+            
+            amount = input(f"How many {flavor}? (max {count}) > ")
+            amount = int(amount)
+            
+            if 0 < amount <= count:
+                complete_sale(state, npc, flavor, amount)
+            else:
+                print("Invalid amount!")
+    except ValueError:
+        print(f"\n\"{npc['haggle_response']}\"")
+        time.sleep(1.5)
+
+def complete_sale(state, npc, flavor, amount):
+    base = FLAVORS[flavor]["base_price"]
+    mult = FLAVORS[flavor]["black_market_multiplier"]
+    price = base * mult * npc["price_modifier"]
+    
+    if flavor in npc["preferred_flavors"]:
+        price *= 1.5
+    
+    # Haggling mini-game
+    print(f"\n💵 They offer ${price * amount:.2f} for {amount} can(s)")
+    
+    haggle = input("Try to haggle? (y/n) > ").lower()
+    
+    if haggle == 'y':
+        haggle_chance = 0.4
+        if has_item_effect(state, 'haggle_boost'):
+            haggle_boost = get_item_power(state, 'haggle_boost')
+            haggle_chance += haggle_boost
+            print(f"   ✨ Lucky Charm Bracelet helps! (+{int(haggle_boost*100)}% haggle chance)")
+        
+        if random.random() < haggle_chance:
+            price *= 1.2
+            print(f"\n✅ Haggle successful! New price: ${price * amount:.2f}")
+        else:
+            print(f"\n\"{npc['haggle_response']}\"")
+            if random.random() < 0.3:
+                print("They walk away in disgust!")
+                return
+    
+    total = price * amount
+    state.cash += total
+    state.prongles_inventory[flavor] -= amount
+    if state.prongles_inventory[flavor] <= 0:
+        del state.prongles_inventory[flavor]
+    
+    state.reputation += amount
+    
+    print(f"\n\"{npc['buy_response']}\"")
+    print(f"\n💰 You received ${total:.2f}!")
+    print(f"⭐ Street rep increased! (+{amount})")
+    
+    time.sleep(2)
+
+def rest_and_recover(state):
+    clear_screen()
+    print("""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                           🏠 YOUR HIDEOUT 🏠                                  ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║      ┌─────────────────────────────────────────────────────────────────┐      ║
+║      │     _____                                                       │      ║
+║      │    /     \\    💤  Zzzzz...                                     │      ║
+║      │   |  ___  |                                                     │      ║
+║      │   | |   | |   You rest and let the heat die down               │      ║
+║      │   | |___| |                                                     │      ║
+║      │   |_______|   📺 *news plays quietly*                          │      ║
+║      │                                                                 │      ║
+║      └─────────────────────────────────────────────────────────────────┘      ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+""")
+    
+    suspicion_drop = random.randint(15, 30)
+    state.suspicion = max(0, state.suspicion - suspicion_drop)
+    state.day += 1
+    
+    print(f"   😴 You lay low for a day...")
+    time.sleep(1)
+    print(f"   📉 Suspicion decreased by {suspicion_drop}%")
+    print(f"   📅 It's now Day {state.day}")
+    
+    # =========================================================================
+    # ADD NEW NEWS HEADLINES HERE
+    # =========================================================================
+    # These play randomly when you rest at your hideout
+    # =========================================================================
+    news = [
+        "NEWS: 'Mysterious Prongles shortage baffles economists'",
+        "NEWS: 'Local man claims Prongles theft is victimless crime'",
+        "NEWS: 'Police increase snack aisle patrols'",
+        "NEWS: 'Prongles stock price mysteriously rises'",
+        "NEWS: 'Expert says chip-based economy inevitable'",
+        # ADD NEW HEADLINES BELOW THIS LINE:
+        
+    ]
+    print(f"\n   📺 {random.choice(news)}")
+    
+    input("\n   Press Enter to continue...")
+
+def visit_shop(state):
+    clear_screen()
+    print("""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                        🛒 SHADY PETE'S EMPORIUM 🛒                            ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║      ┌─────────────────────────────────────────────────────────────────┐      ║
+║      │     _____                                                       │      ║
+║      │    |SHOP |    "Psst... Need some 'tools' for the job?"         │      ║
+║      │    |_____|                                                      │      ║
+║      │   /|     |\\      - Shady Pete                                  │      ║
+║      │    |     |                                                      │      ║
+║      │   _|     |_     "Everything's legit, I promise!"               │      ║
+║      └─────────────────────────────────────────────────────────────────┘      ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+""")
+    
+    print(f"   💰 Your Cash: ${state.cash:.2f}")
+    print("\n   🛍️  ITEMS FOR SALE:")
+    print("   " + "=" * 60)
+    
+    item_list = list(SHOP_ITEMS.keys())
+    for i, item_id in enumerate(item_list, 1):
+        item = SHOP_ITEMS[item_id]
+        owned = state.items_inventory.get(item_id, 0)
+        owned_str = f" [OWNED: {owned}]" if owned > 0 else ""
+        print(f"   {i}. {item['name']} - ${item['price']:.2f}{owned_str}")
+        print(f"      {item['description']}")
+        if item['uses'] == -1:
+            print(f"      (Passive - always active)")
+        elif item['uses'] == 1:
+            print(f"      (Consumable - single use)")
+        else:
+            print(f"      (Limited - {item['uses']} uses)")
+        print()
+    
+    print("   0. Leave the shop")
+    print("\n   " + "=" * 60)
+    
+    try:
+        choice = input("\n   What would you like to buy? > ")
+        if choice == "0":
+            return
+        
+        choice_idx = int(choice) - 1
+        if 0 <= choice_idx < len(item_list):
+            item_id = item_list[choice_idx]
+            purchase_item(state, item_id)
+        else:
+            print("\n   Pete squints at you. 'That ain't on the menu, pal.'")
+            time.sleep(1.5)
+    except ValueError:
+        print("\n   'Speak clearly!' Pete grumbles.")
+        time.sleep(1)
+
+def purchase_item(state, item_id):
+    item = SHOP_ITEMS[item_id]
+    
+    if state.cash < item['price']:
+        print(f"\n   ❌ Not enough cash! You need ${item['price']:.2f}")
+        print(f"      You only have ${state.cash:.2f}")
+        time.sleep(1.5)
+        return
+    
+    if item['uses'] == -1 and state.items_inventory.get(item_id, 0) > 0:
+        print(f"\n   ❌ You already own {item['name']}!")
+        print("      (Passive items can only be owned once)")
+        time.sleep(1.5)
+        return
+    
+    state.cash -= item['price']
+    state.items_inventory[item_id] = state.items_inventory.get(item_id, 0) + 1
+    
+    print(f"\n   ✅ Purchased: {item['name']}!")
+    print(f"   💰 Remaining cash: ${state.cash:.2f}")
+    
+    if item['effect'] == 'instant_suspicion_drop':
+        state.suspicion = max(0, state.suspicion - item['power'])
+        state.items_inventory[item_id] -= 1
+        if state.items_inventory[item_id] <= 0:
+            del state.items_inventory[item_id]
+        print(f"   📉 Used immediately! Suspicion dropped by {int(item['power'])}%!")
+    
+    time.sleep(1.5)
+
+def has_item_effect(state, effect_type):
+    for item_id, count in state.items_inventory.items():
+        if count > 0 and SHOP_ITEMS[item_id]['effect'] == effect_type:
+            return True
+    return False
+
+def get_item_power(state, effect_type):
+    total_power = 0
+    for item_id, count in state.items_inventory.items():
+        if count > 0 and SHOP_ITEMS[item_id]['effect'] == effect_type:
+            total_power += SHOP_ITEMS[item_id]['power']
+    return total_power
+
+def use_consumable(state, effect_type):
+    for item_id, count in list(state.items_inventory.items()):
+        item = SHOP_ITEMS[item_id]
+        if count > 0 and item['effect'] == effect_type and item['uses'] > 0:
+            state.items_inventory[item_id] -= 1
+            if state.items_inventory[item_id] <= 0:
+                del state.items_inventory[item_id]
+            return item['power']
+    return 0
+
+def open_inventory(state):
+    while True:
+        clear_screen()
+        print("""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                            🎒 YOUR INVENTORY 🎒                               ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+""")
+        print(f"║   💰 Cash: ${state.cash:.2f}                                                   ")
+        print(f"║   😰 Suspicion: {state.suspicion}%                                              ")
+        print("╠═══════════════════════════════════════════════════════════════════════════════╣")
+        
+        if state.prongles_inventory:
+            print("║   🥫 PRONGLES STASH:                                                          ║")
+            for flavor, count in state.prongles_inventory.items():
+                rarity = FLAVORS[flavor]["rarity"]
+                print(f"║      {flavor} ({rarity}): {count} can(s)")
+        else:
+            print("║   🥫 No Prongles in your stash                                                ║")
+        
+        print("╠═══════════════════════════════════════════════════════════════════════════════╣")
+        
+        usable_items = []
+        passive_items = []
+        
+        for item_id, count in state.items_inventory.items():
+            item = SHOP_ITEMS[item_id]
+            if item['uses'] == -1:
+                passive_items.append((item_id, item, count))
+            else:
+                usable_items.append((item_id, item, count))
+        
+        if passive_items:
+            print("║   🔧 PASSIVE EQUIPMENT (always active):                                       ║")
+            for item_id, item, count in passive_items:
+                print(f"║      ✓ {item['name']}")
+                print(f"║        {item['description']}")
+            print("║                                                                               ║")
+        
+        if usable_items:
+            print("║   📦 USABLE ITEMS:                                                            ║")
+            for i, (item_id, item, count) in enumerate(usable_items, 1):
+                print(f"║      {i}. {item['name']} (x{count})")
+                print(f"║         {item['description']}")
+            print("║                                                                               ║")
+        elif not passive_items:
+            print("║   (Your equipment bag is empty)                                               ║")
+            print("║   Visit Shady Pete's Shop to buy some gear!                                   ║")
+        
+        print("╠═══════════════════════════════════════════════════════════════════════════════╣")
+        print("║   Enter a number to use an item, or 0 to go back                              ║")
+        print("╚═══════════════════════════════════════════════════════════════════════════════╝")
+        
+        choice = input("\n   Your choice > ")
+        
+        if choice == "0":
+            return
+        
+        try:
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(usable_items):
+                item_id, item, count = usable_items[choice_idx]
+                use_item_from_inventory(state, item_id, item)
+            else:
+                print("\n   That's not a valid item number.")
+                time.sleep(1)
+        except ValueError:
+            print("\n   Please enter a number.")
+            time.sleep(1)
+
+def use_item_from_inventory(state, item_id, item):
+    effect = item['effect']
+    
+    if effect == "instant_suspicion_drop":
+        old_suspicion = state.suspicion
+        state.suspicion = max(0, state.suspicion - item['power'])
+        state.items_inventory[item_id] -= 1
+        if state.items_inventory[item_id] <= 0:
+            del state.items_inventory[item_id]
+        print(f"\n   💸 You slip the guard an envelope...")
+        time.sleep(1)
+        print(f"   😌 Suspicion dropped from {old_suspicion}% to {state.suspicion}%!")
+        time.sleep(1.5)
+    elif effect == "one_time_boost":
+        print(f"\n   ⚡ You can't use {item['name']} here!")
+        print("   This item activates automatically during your next heist.")
+        time.sleep(2)
+    elif effect == "multi_grab":
+        print(f"\n   🧥 You can't use {item['name']} here!")
+        print("   This item activates automatically during heists.")
+        time.sleep(2)
+    else:
+        print(f"\n   🤔 This item works passively or during specific actions.")
+        time.sleep(1.5)
+
+def main_menu(state):
+    clear_screen()
+    print_title()
+    print_inventory(state)
+    print_suspicion_meter(state.suspicion)
+    
+    print("""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                              WHAT DO YOU DO?                                  ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║     1. 🏪 Go to the Store (steal Prongles)                                   ║
+║     2. 🌙 Visit the Black Market (sell your stash)                           ║
+║     3. 🛒 Visit Shady Pete's Shop (buy equipment)                            ║
+║     4. 🎒 Open Inventory (use items)                                         ║
+║     5. 🏠 Lay Low (rest and reduce suspicion)                                ║
+║     6. 📊 View Statistics                                                    ║
+║     7. 🚪 Quit (retire from the game)                                        ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+""")
+    
+    return input("Your choice > ")
+
+def view_stats(state):
+    clear_screen()
+    total_cans = sum(state.prongles_inventory.values())
+    
+    print(f"""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                           📊 CRIMINAL STATISTICS 📊                           ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║   Days in the Game:     {state.day:<10}                                       ║
+║   Total Cash Earned:    ${state.cash:<10.2f}                                  ║
+║   Street Reputation:    {state.reputation:<10}                                ║
+║   Cans in Stash:        {total_cans:<10}                                      ║
+║   Current Suspicion:    {state.suspicion}%                                    ║
+║                                                                               ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                           🏆 CRIMINAL RANKING 🏆                               ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+""")
+    
+    # =========================================================================
+    # MODIFY CRIMINAL RANKINGS HERE
+    # =========================================================================
+    # Add more elif blocks for new ranks, or change the reputation thresholds
+    # =========================================================================
+    if state.reputation < 10:
+        rank = "Snack Amateur"
+        desc = "You're still learning the ways of the chip"
+    elif state.reputation < 25:
+        rank = "Crumb Lord"
+        desc = "The streets whisper your name... quietly"
+    elif state.reputation < 50:
+        rank = "The Prongle Phantom"
+        desc = "Store managers fear your silhouette"
+    elif state.reputation < 100:
+        rank = "Crisp Crime Boss"
+        desc = "You run the black market snack trade"
+    # ADD MORE RANKS ABOVE THIS LINE (use elif state.reputation < X:)
+    else:
+        rank = "THE PRONGLES KINGPIN"
+        desc = "You ARE the chip. The chip is YOU."
+    
+    print(f"║   Your Rank: {rank:<30}                          ║")
+    print(f"║   \"{desc}\"                                            ")
+    print("║                                                                               ║")
+    print("╚═══════════════════════════════════════════════════════════════════════════════╝")
+    
+    input("\nPress Enter to continue...")
+
+def game_over_screen(state):
+    clear_screen()
+    if state.arrested:
+        print("""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                                                                               ║
+║                           🚨 GAME OVER 🚨                                     ║
+║                                                                               ║
+║                          ┌─────────────────┐                                  ║
+║                          │  ║║║║║║║║║║║║║  │                                  ║
+║                          │  ║   JAIL   ║   │                                  ║
+║                          │  ║  :(  )   ║   │                                  ║
+║                          │  ║║║║║║║║║║║║║  │                                  ║
+║                          └─────────────────┘                                  ║
+║                                                                               ║
+║                   You've been arrested for Prongles theft!                    ║
+║                                                                               ║
+║              The judge sentences you to eat only GENERIC CHIPS                ║
+║                         for the rest of your days.                            ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+""")
+    else:
+        print(f"""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                                                                               ║
+║                           🎮 GAME OVER 🎮                                     ║
+║                                                                               ║
+║                      You've retired from the game!                            ║
+║                                                                               ║
+║                         FINAL STATISTICS:                                     ║
+║                                                                               ║
+║                    Days Survived: {state.day:<10}                             ║
+║                    Total Earnings: ${state.cash:<10.2f}                       ║
+║                    Street Rep: {state.reputation:<10}                         ║
+║                                                                               ║
+║             Thanks for playing PRONGLES HEIST!                                ║
+║                                                                               ║
+║                  "This was all satire, obviously"                             ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+""")
+    
+    input("\nPress Enter to exit...")
+
+def intro_sequence():
+    clear_screen()
+    print_title()
+    time.sleep(1)
+    
+    print("\n")
+    print_slow("   In a world where snacks are currency...")
+    time.sleep(0.5)
+    print_slow("   Where the crunch of a chip echoes in dark alleys...")
+    time.sleep(0.5)
+    print_slow("   One person dares to ask...")
+    time.sleep(0.5)
+    print_slow("   'What if I just... took them?'")
+    time.sleep(1)
+    print("\n")
+    print_slow("   This is YOUR story.")
+    print("\n")
+    
+    input("   Press Enter to begin your crispy criminal career...")
+
+def main():
+    state = GameState()
+    
+    try:
+        intro_sequence()
+        
+        while not state.game_over:
+            choice = main_menu(state)
+            
+            if choice == "1":
+                steal_prongles(state)
+            elif choice == "2":
+                sell_prongles(state)
+            elif choice == "3":
+                visit_shop(state)
+            elif choice == "4":
+                open_inventory(state)
+            elif choice == "5":
+                rest_and_recover(state)
+            elif choice == "6":
+                view_stats(state)
+            elif choice == "7":
+                confirm = input("Really quit? (y/n) > ").lower()
+                if confirm == 'y':
+                    state.game_over = True
+            
+            if state.game_over:
+                break
+        
+        game_over_screen(state)
+        
+    except KeyboardInterrupt:
+        print("\n\nYou fled into the night... The Prongles remember.")
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main()
